@@ -89,11 +89,19 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                               evt.msMovementY ||
                               0;
 
-                // TODO: Do we want to coalesce these events so only one is
-                // added per render frame? Seek advice from reviewer on how
-                // engine.isPointerLock is used.
-                let event: _Event = [_EventType.TouchEvent, [null, offsetX, offsetY]];
-                this._allEvents.push(event);
+                // TODO: Can we get away with modifying this to also passing the
+                // event as the first parameter here?
+                // It would be useful for determining other things about state.
+                // (Button presses, keyboard modifiers, etc.)
+                // It would be a change to the current behaviour but unlikely to
+                // cause harm unless a user relies on this to know if they are
+                // in pointerlock...
+                this._pushEventTouch({
+                    point: undefined,
+                    offsetX,
+                    offsetY
+                });
+
                 this._pointA = null;
                 this._pointB = null;
             } else if (p.type === PointerEventTypes.POINTERDOWN && srcElement) {
@@ -115,17 +123,14 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                               type: evt.pointerType };
                 }
 
-                const event: _Event = [_EventType.ButtonDownEvent, <_ButtonDownEvent>evt];
-                this._allEvents.push(event);
+                this._pushEventButtonDown({event: evt});
 
                 if (!noPreventDefault) {
                     evt.preventDefault();
                     element.focus();
                 }
             } else if (p.type === PointerEventTypes.POINTERDOUBLETAP) {
-                const event: _Event =
-                    [_EventType.DoubleTapEvent, <_DoubleTapEvent>evt.pointerType];
-                this._allEvents.push(event);
+                this._pushEventDoubleTap({type: evt.pointerType});
             } else if (p.type === PointerEventTypes.POINTERUP && srcElement) {
                 try {
                     srcElement.releasePointerCapture(evt.pointerId);
@@ -161,21 +166,23 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                 if (previousPinchSquaredDistance !== 0 || previousMultiTouchPanPosition) {
                     // Previous pinch data is populated but a button has been lifted
                     // so pinch has ended.
-                    const event: _Event = [_EventType.MultiTouchEvent,
-                        [ this._pointA,
-                            this._pointB,
-                            previousPinchSquaredDistance,
-                            0,  // pinchSquaredDistance
-                            previousMultiTouchPanPosition,
-                            null  // multiTouchPanPosition
-                        ]];
-                    this._allEvents.push(event);
+                    let pointA = this._pointA === null ? undefined : this._pointA;
+                    let pointB = this._pointB === null ? undefined : this._pointB;
+                    let pmtpp = previousMultiTouchPanPosition === null ?
+                        undefined : previousMultiTouchPanPosition;
+                    this._pushEventMultiTouch({
+                        pointA,
+                        pointB,
+                        previousPinchSquaredDistance: previousPinchSquaredDistance,
+                        pinchSquaredDistance: 0,
+                        previousMultiTouchPanPosition: pmtpp,
+                        multiTouchPanPosition: undefined
+                    });
                     previousPinchSquaredDistance = 0;
                     previousMultiTouchPanPosition = null;
                 }
 
-                const event: _Event = [_EventType.ButtonUpEvent, <_ButtonUpEvent>evt];
-                this._allEvents.push(event);
+                this._pushEventButtonUp({event: evt});
 
                 if (!noPreventDefault) {
                     evt.preventDefault();
@@ -189,9 +196,11 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                 if (this._pointA && this._pointB === null) {
                     var offsetX = evt.clientX - this._pointA.x;
                     var offsetY = evt.clientY - this._pointA.y;
-                    let event: _Event =
-                        [_EventType.TouchEvent, [this._pointA, offsetX, offsetY]];
-                    this._allEvents.push(event);
+                    this._pushEventTouch({
+                        point: this._pointA,
+                        offsetX,
+                        offsetY
+                    });
 
                     this._pointA.x = evt.clientX;
                     this._pointA.y = evt.clientY;
@@ -210,15 +219,16 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                                                  pointerId: evt.pointerId,
                                                  type: p.type};
 
-                    const event: _Event = [_EventType.MultiTouchEvent,
-                        [ this._pointA,
-                            this._pointB,
-                            previousPinchSquaredDistance,
-                            pinchSquaredDistance,
-                            previousMultiTouchPanPosition,
-                            multiTouchPanPosition
-                        ]];
-                    this._allEvents.push(event);
+                    let pmtpp = previousMultiTouchPanPosition === null ?
+                        undefined : previousMultiTouchPanPosition;
+                    this._pushEventMultiTouch({
+                        pointA: this._pointA,
+                        pointB: this._pointB,
+                        previousPinchSquaredDistance,
+                        pinchSquaredDistance,
+                        previousMultiTouchPanPosition: pmtpp,
+                        multiTouchPanPosition
+                    });
 
                     previousMultiTouchPanPosition = multiTouchPanPosition;
                     previousPinchSquaredDistance = pinchSquaredDistance;
@@ -305,9 +315,8 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * possible.
      */
     public checkInputs(): void {
-        while (this._allEvents.length > 0) {
-            const [eventName, event] = <_Event>(this._allEvents.shift());
-
+        let count = 0;
+        while (this._allEventsCount > count) {
             // A previous iteration of this code called the event handlers from
             // within `this._pointerInput()`.
             // Now we call them from here we face the challenge of maintaining
@@ -315,81 +324,78 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
             // Eg: A user clicking the mouse twice needs to cause
             // onButtonDown(...), onButtonUp(...), onButtonDown(...), onButtonUp(...)
             // to be called in that exact order.
-            // Storing the events of different types in a list gives us the
-            // problem of knowing what type of event it is when we process the
-            // list.
-            // This is the reason for the _EventType enum value in these events.
             //
-            // TODO: Seek advice from reviewer that i'm not missing a way to
-            // check types at runtime in Typescript.
-            switch (eventName) {
-                case _EventType.DoubleTapEvent:
-                    this.onDoubleTap(<string>event);
-                    this.onDoubleTapObservable.notifyObservers({event: <string>event});
-                    break;
-                case _EventType.ButtonUpEvent:
-                    this.onButtonUp(<_ButtonUpEvent>event);
-                    this.onButtonUpObservable.notifyObservers({event: <PointerEvent>event});
-                    break;
-                case _EventType.ButtonDownEvent:
-                    this.onButtonDown(<_ButtonDownEvent>event);
-                    this.onButtonDownObservable.notifyObservers({event: <PointerEvent>event});
-                    break;
-                case _EventType.TouchEvent:
-                    this.onTouch(...<_TouchEvent>event);
-                    this.onTouchObservable.notifyObservers({
-                        point: (<_TouchEvent>event)[0],
-                        deltaX: (<_TouchEvent>event)[1],
-                        deltaY: (<_TouchEvent>event)[2]
-                    });
-                    break;
-                case _EventType.MultiTouchEvent:
-                    this.onMultiTouch(...<_MultiTouchEvent>event);
-                    this.onMultiTouchObservable.notifyObservers({
-                        pointA: (<_MultiTouchEvent>event)[0],
-                        pointB: (<_MultiTouchEvent>event)[1],
-                        previousPinchSquaredDistance: (<_MultiTouchEvent>event)[2],
-                        pinchSquaredDistance: (<_MultiTouchEvent>event)[3],
-                        previousMultiTouchPanPosition: (<_MultiTouchEvent>event)[4],
-                        multiTouchPanPosition: (<_MultiTouchEvent>event)[5]
-                    });
-            }
-        }
-    }
+            // this._allEvents contains indexes into the lists of event types in
+            // the order they were triggered.
 
-    /**
-    * Observable for when a double tap event occurs.
-    */
-    public onDoubleTapObservable = new Observable<{event: string}>();
+            const event = this._allEvents[count];
+            console.assert(event.index >= 0, "Invalid event index.");
+
+            if (event.eventCollection === this._eventsButtonDown) {
+                const exactEvent = this._eventsButtonDown[event.index];
+                this.onButtonDown(exactEvent.event);
+                this.onButtonDownObservable.notifyObservers(exactEvent);
+            } else if (event.eventCollection === this._eventsButtonUp) {
+                const exactEvent = this._eventsButtonUp[event.index];
+                this.onButtonUp(exactEvent.event);
+                this.onButtonUpObservable.notifyObservers(exactEvent);
+            } else if (event.eventCollection === this._eventsDoubleTap) {
+                const exactEvent = this._eventsDoubleTap[event.index];
+                this.onDoubleTap(exactEvent.type);
+                this.onDoubleTapObservable.notifyObservers(exactEvent);
+            } else if (event.eventCollection === this._eventsTouch) {
+                const exactEvent = this._eventsTouch[event.index];
+                const point = exactEvent.point === undefined ? null : exactEvent.point;
+                this.onTouch(point, exactEvent.offsetX, exactEvent.offsetY);
+                this.onTouchObservable.notifyObservers(exactEvent);
+            } else if (event.eventCollection === this._eventsMultiTouch) {
+                const exactEvent = this._eventsMultiTouch[event.index];
+                const pointA = exactEvent.pointA === undefined ? null : exactEvent.pointA;
+                const pointB = exactEvent.pointB === undefined ? null : exactEvent.pointB;
+                const pmtpp =
+                    exactEvent.previousMultiTouchPanPosition === undefined ?
+                    null : exactEvent.previousMultiTouchPanPosition;
+                const mtpp = exactEvent.multiTouchPanPosition === undefined ?
+                    null : exactEvent.multiTouchPanPosition;
+                this.onMultiTouch(
+                    pointA,
+                    pointB,
+                    exactEvent.previousPinchSquaredDistance,
+                    exactEvent.pinchSquaredDistance,
+                    pmtpp,
+                    mtpp);
+                this.onMultiTouchObservable.notifyObservers(exactEvent);
+            }
+
+            this._allEvents[count].index = -1;
+        }
+        this._allEventsCount = 0;
+    }
 
     /**
     * Observable for when a button up event occurs.
     */
-    public onButtonUpObservable = new Observable<{event: PointerEvent}>();
+    public onButtonUpObservable = new Observable<ICameraInputButtonUpEvent>();
 
     /**
     * Observable for when a button down event occurs.
     */
-    public onButtonDownObservable = new Observable<{event: PointerEvent}>();
+    public onButtonDownObservable = new Observable<ICameraInputButtonDownEvent>();
+
+    /**
+    * Observable for when a double tap event occurs.
+    */
+    public onDoubleTapObservable = new Observable<ICameraInputDoubleTapEvent>();
 
     /**
      * Observable for pointer drag event.
      */
-    public onTouchObservable = new Observable<{
-        point: Nullable<PointerTouch>, deltaX: number, deltaY: number
-    }>();
+    public onTouchObservable = new Observable<ICameraInputTouchEvent>();
 
     /**
      * Observable for multi touch event.
      */
-    public onMultiTouchObservable = new Observable<{
-        pointA: Nullable<PointerTouch>,
-        pointB: Nullable<PointerTouch>,
-        previousPinchSquaredDistance: number,
-        pinchSquaredDistance: number,
-        previousMultiTouchPanPosition: Nullable<PointerTouch>,
-        multiTouchPanPosition: Nullable<PointerTouch>
-    }>();
+    public onMultiTouchObservable = new Observable<ICameraInputMultiTouchEvent>();
 
     /**
      * Gets the class name of the current input.
@@ -468,10 +474,121 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
     }
 
     /**
-     * This is the queue of events that feeds checkInputs().
+     * Queue events for later processing by checkInputs().
      * See the comment in that function for a description.
      */
+    private _pushEvent(event: _Event): void {
+        if (this._allEventsCount <= this._allEvents.length) {
+            this._allEvents.push(event);
+            return;
+        }
+        this._allEvents[this._allEventsCount] = event;
+        this._allEventsCount++;
+    }
     private _allEvents: _Event[] = [];
+    private _allEventsCount: number = 0;
+
+    /**
+     * Queue a button down event for later processing.
+     */
+    private _pushEventButtonDown(event: ICameraInputButtonDownEvent): void {
+        if (this._eventsButtonDownCount <= this._eventsButtonDown.length) {
+            this._eventsButtonDown.push(event);
+            return;
+        }
+        this._eventsButtonDown[this._eventsButtonDownCount] = event;
+
+        this._pushEvent({
+            index: this._eventsButtonDownCount,
+            eventCollection: this._eventsButtonDown
+        });
+
+        this._eventsButtonDownCount++;
+    }
+    private _eventsButtonDownCount: number = 0;
+    private _eventsButtonDown: ICameraInputButtonDownEvent[] = [];
+
+    /**
+     * Queue a button up event for later processing.
+     */
+    private _pushEventButtonUp(event: ICameraInputButtonUpEvent): void {
+        if (this._eventsButtonUpCount <= this._eventsButtonUp.length) {
+            this._eventsButtonUp.push(event);
+            return;
+        }
+        this._eventsButtonUp[this._eventsButtonUpCount] = event;
+
+        this._pushEvent({
+            index: this._eventsButtonUpCount,
+            eventCollection: this._eventsButtonUp
+        });
+
+        this._eventsButtonUpCount++;
+    }
+    private _eventsButtonUpCount: number = 0;
+    private _eventsButtonUp: ICameraInputButtonUpEvent[] = [];
+
+    /**
+     * Queue a double tap event for later processing.
+     */
+    private _pushEventDoubleTap(event: ICameraInputDoubleTapEvent): void {
+        if (this._eventsDoubleTapCount <= this._eventsDoubleTap.length) {
+            this._eventsDoubleTap.push(event);
+            return;
+        }
+        this._eventsDoubleTap[this._eventsDoubleTapCount] = event;
+
+        this._pushEvent({
+            index: this._eventsButtonDownCount,
+            eventCollection: this._eventsButtonDown
+        });
+
+        this._eventsDoubleTapCount++;
+    }
+    private _eventsDoubleTapCount: number = 0;
+    private _eventsDoubleTap: ICameraInputDoubleTapEvent[] = [];
+
+    /**
+     * Queue a touch event for later processing.
+     * TODO: Coalesce these events.
+     */
+    private _pushEventTouch(event: ICameraInputTouchEvent): void {
+        if (this._eventsTouchCount <= this._eventsTouch.length) {
+            this._eventsTouch.push(event);
+            return;
+        }
+        this._eventsTouch[this._eventsTouchCount] = event;
+
+        this._pushEvent({
+            index: this._eventsTouchCount,
+            eventCollection: this._eventsTouch
+        });
+
+        this._eventsTouchCount++;
+    }
+    private _eventsTouchCount: number = 0;
+    private _eventsTouch: ICameraInputTouchEvent[] = [];
+
+    /**
+     * Queue a multi touch event for later processing.
+     * TODO: Coalesce these events.
+     */
+    private _pushEventMultiTouch(event: ICameraInputMultiTouchEvent): void {
+        if (this._eventsMultiTouchCount <= this._eventsMultiTouch.length) {
+            this._eventsMultiTouch.push(event);
+            return;
+        }
+        this._eventsMultiTouch[this._eventsMultiTouchCount] = event;
+
+        this._pushEvent({
+            index: this._eventsMultiTouchCount,
+            eventCollection: this._eventsMultiTouch
+        });
+
+        this._eventsMultiTouchCount++;
+    }
+    private _eventsMultiTouchCount: number = 0;
+    private _eventsMultiTouch: ICameraInputMultiTouchEvent[] = [];
 
     private _pointerInput: (p: PointerInfo, s: EventState) => void;
     private _observer: Nullable<Observer<PointerInfo>>;
@@ -480,30 +597,38 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
     private _pointB: Nullable<PointerTouch>;
 }
 
-/**
- * The following types are for various event types in the queue that feeds
- * BaseCameraPointersInput.checkInputs().
- */
-type _TouchEvent = [Nullable<PointerTouch>, number, number];
-type _MultiTouchEvent = [
-        Nullable<PointerTouch>,
-        Nullable<PointerTouch>,
-        number,
-        number,
-        Nullable<PointerTouch>,
-        Nullable<PointerTouch> ];
-type _DoubleTapEvent = string;
-type _ButtonDownEvent = PointerEvent;
-type _ButtonUpEvent = PointerEvent;
-type _Event = [
-    _EventType,
-    (_TouchEvent | _MultiTouchEvent | _DoubleTapEvent | _ButtonDownEvent | _ButtonUpEvent)
-];
+interface _Event {
+    index: number;
+    eventCollection: (ICameraInputButtonDownEvent[] |
+                      ICameraInputButtonUpEvent[] |
+                      ICameraInputDoubleTapEvent[] |
+                      ICameraInputTouchEvent[] |
+                      ICameraInputMultiTouchEvent[]);
+}
 
-enum _EventType {
-    TouchEvent,
-    MultiTouchEvent,
-    DoubleTapEvent,
-    ButtonDownEvent,
-    ButtonUpEvent
+interface ICameraInputButtonDownEvent {
+    event: PointerEvent;
+}
+
+interface ICameraInputButtonUpEvent {
+    event: PointerEvent;
+}
+
+interface ICameraInputDoubleTapEvent {
+    type: string;
+}
+
+interface ICameraInputTouchEvent {
+    point?: PointerTouch;
+    offsetX: number;
+    offsetY: number;
+}
+
+interface ICameraInputMultiTouchEvent {
+    pointA?: PointerTouch;
+    pointB?: PointerTouch;
+    previousPinchSquaredDistance: number;
+    pinchSquaredDistance: number;
+    previousMultiTouchPanPosition?: PointerTouch;
+    multiTouchPanPosition?: PointerTouch;
 }
