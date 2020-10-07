@@ -316,6 +316,9 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      */
     public checkInputs(): void {
         let count = 0;
+        if(this._allEventsCount > 0) {
+            console.table(this._allEvents);
+        }
         while (this._allEventsCount > count) {
             // A previous iteration of this code called the event handlers from
             // within `this._pointerInput()`.
@@ -368,8 +371,14 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
             }
 
             this._allEvents[count].index = -1;
+            count++;
         }
         this._allEventsCount = 0;
+        this._eventsButtonDownCount = 0;
+        this._eventsButtonUpCount = 0;
+        this._eventsDoubleTapCount = 0;
+        this._eventsTouchCount = 0;
+        this._eventsMultiTouchCount = 0;
     }
 
     /**
@@ -478,11 +487,11 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * See the comment in that function for a description.
      */
     private _pushEvent(event: _Event): void {
-        if (this._allEventsCount <= this._allEvents.length) {
+        if (this._allEventsCount >= this._allEvents.length) {
             this._allEvents.push(event);
-            return;
+        } else {
+            this._allEvents[this._allEventsCount] = event;
         }
-        this._allEvents[this._allEventsCount] = event;
         this._allEventsCount++;
     }
     private _allEvents: _Event[] = [];
@@ -492,15 +501,16 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * Queue a button down event for later processing.
      */
     private _pushEventButtonDown(event: ICameraInputButtonDownEvent): void {
-        if (this._eventsButtonDownCount <= this._eventsButtonDown.length) {
+        if (this._eventsButtonDownCount >= this._eventsButtonDown.length) {
             this._eventsButtonDown.push(event);
-            return;
+        } else {
+            this._eventsButtonDown[this._eventsButtonDownCount] = event;
         }
-        this._eventsButtonDown[this._eventsButtonDownCount] = event;
 
         this._pushEvent({
             index: this._eventsButtonDownCount,
-            eventCollection: this._eventsButtonDown
+            eventCollection: this._eventsButtonDown,
+            debug: "ButtonDown"
         });
 
         this._eventsButtonDownCount++;
@@ -512,15 +522,16 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * Queue a button up event for later processing.
      */
     private _pushEventButtonUp(event: ICameraInputButtonUpEvent): void {
-        if (this._eventsButtonUpCount <= this._eventsButtonUp.length) {
+        if (this._eventsButtonUpCount >= this._eventsButtonUp.length) {
             this._eventsButtonUp.push(event);
-            return;
+        } else {
+            this._eventsButtonUp[this._eventsButtonUpCount] = event;
         }
-        this._eventsButtonUp[this._eventsButtonUpCount] = event;
 
         this._pushEvent({
             index: this._eventsButtonUpCount,
-            eventCollection: this._eventsButtonUp
+            eventCollection: this._eventsButtonUp,
+            debug: "ButtonUp"
         });
 
         this._eventsButtonUpCount++;
@@ -532,15 +543,17 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * Queue a double tap event for later processing.
      */
     private _pushEventDoubleTap(event: ICameraInputDoubleTapEvent): void {
-        if (this._eventsDoubleTapCount <= this._eventsDoubleTap.length) {
+        if (this._eventsDoubleTapCount >= this._eventsDoubleTap.length) {
             this._eventsDoubleTap.push(event);
-            return;
+            this._eventsDoubleTapCount++;
+        } else {
+            this._eventsDoubleTap[this._eventsDoubleTapCount] = event;
         }
-        this._eventsDoubleTap[this._eventsDoubleTapCount] = event;
 
         this._pushEvent({
-            index: this._eventsButtonDownCount,
-            eventCollection: this._eventsButtonDown
+            index: this._eventsDoubleTapCount,
+            eventCollection: this._eventsDoubleTap,
+            debug: "DoubleTap"
         });
 
         this._eventsDoubleTapCount++;
@@ -553,15 +566,16 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * TODO: Coalesce these events.
      */
     private _pushEventTouch(event: ICameraInputTouchEvent): void {
-        if (this._eventsTouchCount <= this._eventsTouch.length) {
+        if (this._eventsTouchCount >= this._eventsTouch.length) {
             this._eventsTouch.push(event);
-            return;
+        } else {
+            this._eventsTouch[this._eventsTouchCount] = event;
         }
-        this._eventsTouch[this._eventsTouchCount] = event;
 
         this._pushEvent({
             index: this._eventsTouchCount,
-            eventCollection: this._eventsTouch
+            eventCollection: this._eventsTouch,
+            debug: "Touch"
         });
 
         this._eventsTouchCount++;
@@ -574,15 +588,16 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * TODO: Coalesce these events.
      */
     private _pushEventMultiTouch(event: ICameraInputMultiTouchEvent): void {
-        if (this._eventsMultiTouchCount <= this._eventsMultiTouch.length) {
+        if (this._eventsMultiTouchCount >= this._eventsMultiTouch.length) {
             this._eventsMultiTouch.push(event);
-            return;
+        } else {
+            this._eventsMultiTouch[this._eventsMultiTouchCount] = event;
         }
-        this._eventsMultiTouch[this._eventsMultiTouchCount] = event;
 
         this._pushEvent({
             index: this._eventsMultiTouchCount,
-            eventCollection: this._eventsMultiTouch
+            eventCollection: this._eventsMultiTouch,
+            debug: "MultiTouch"
         });
 
         this._eventsMultiTouchCount++;
@@ -604,6 +619,7 @@ interface _Event {
                       ICameraInputDoubleTapEvent[] |
                       ICameraInputTouchEvent[] |
                       ICameraInputMultiTouchEvent[]);
+    debug?: string;
 }
 
 interface ICameraInputButtonDownEvent {
