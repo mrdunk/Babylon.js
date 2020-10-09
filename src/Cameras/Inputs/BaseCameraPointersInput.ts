@@ -96,11 +96,12 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                 // It would be a change to the current behaviour but unlikely to
                 // cause harm unless a user relies on this to know if they are
                 // in pointerlock...
-                this._pushEventTouch({
+                this._eventsTouch.push({
                     point: null,
                     offsetX,
                     offsetY
                 });
+                this._allEvents.push(this._eventsTouch);
 
                 this._pointA = null;
                 this._pointB = null;
@@ -123,14 +124,16 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                               type: evt.pointerType };
                 }
 
-                this._pushEventButtonDown({event: evt});
+                this._eventsButtonDown.push({event: evt});
+                this._allEvents.push(this._eventsButtonDown);
 
                 if (!noPreventDefault) {
                     evt.preventDefault();
                     element.focus();
                 }
             } else if (p.type === PointerEventTypes.POINTERDOUBLETAP) {
-                this._pushEventDoubleTap({type: evt.pointerType});
+                this._eventsDoubleTap.push({type: evt.pointerType});
+                this._allEvents.push(this._eventsDoubleTap);
             } else if (p.type === PointerEventTypes.POINTERUP && srcElement) {
                 try {
                     srcElement.releasePointerCapture(evt.pointerId);
@@ -166,7 +169,7 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                 if (previousPinchSquaredDistance !== 0 || previousMultiTouchPanPosition) {
                     // Previous pinch data is populated but a button has been lifted
                     // so pinch has ended.
-                    this._pushEventMultiTouch({
+                    this._eventsMultiTouch.push({
                         pointA: this._pointA,
                         pointB: this._pointB,
                         previousPinchSquaredDistance: previousPinchSquaredDistance,
@@ -174,11 +177,14 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                         previousMultiTouchPanPosition,
                         multiTouchPanPosition: null
                     });
+                    this._allEvents.push(this._eventsMultiTouch);
+
                     previousPinchSquaredDistance = 0;
                     previousMultiTouchPanPosition = null;
                 }
 
-                this._pushEventButtonUp({event: evt});
+                this._eventsButtonUp.push({event: evt});
+                this._allEvents.push(this._eventsButtonUp);
 
                 if (!noPreventDefault) {
                     evt.preventDefault();
@@ -192,11 +198,12 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                 if (this._pointA && this._pointB === null) {
                     var offsetX = evt.clientX - this._pointA.x;
                     var offsetY = evt.clientY - this._pointA.y;
-                    this._pushEventTouch({
+                    this._eventsTouch.push({
                         point: this._pointA,
                         offsetX,
                         offsetY
                     });
+                    this._allEvents.push(this._eventsTouch);
 
                     this._pointA.x = evt.clientX;
                     this._pointA.y = evt.clientY;
@@ -215,7 +222,7 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                                                  pointerId: evt.pointerId,
                                                  type: p.type};
 
-                    this._pushEventMultiTouch({
+                    this._eventsMultiTouch.push({
                         pointA: this._pointA,
                         pointB: this._pointB,
                         previousPinchSquaredDistance,
@@ -223,6 +230,7 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                         previousMultiTouchPanPosition,
                         multiTouchPanPosition
                     });
+                    this._allEvents.push(this._eventsMultiTouch);
 
                     previousMultiTouchPanPosition = multiTouchPanPosition;
                     previousPinchSquaredDistance = pinchSquaredDistance;
@@ -324,48 +332,47 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
             // this._allEvents contains indexes into the lists of event types in
             // the order they were triggered.
 
-            const event = this._allEvents.pop();
-            console.assert(event !== undefined, "Invalid event.");
-            if(event === undefined || event === null) {  // TODO: Why both of these?
+            const eventBuffer = this._allEvents.pop();
+            console.assert(eventBuffer !== undefined, "Invalid event.");
+            if(eventBuffer === undefined || eventBuffer === null) {  // TODO: Why both of these?
                 break;
             }
 
-            if (event.eventCollection === this._eventsButtonDown) {
-                const exactEvent = this._eventsButtonDown[event.index];
-                this.onButtonDown(exactEvent.event);
-                this.onButtonDownObservable.notifyObservers(exactEvent);
-            } else if (event.eventCollection === this._eventsButtonUp) {
-                const exactEvent = this._eventsButtonUp[event.index];
-                this.onButtonUp(exactEvent.event);
-                this.onButtonUpObservable.notifyObservers(exactEvent);
-            } else if (event.eventCollection === this._eventsDoubleTap) {
-                const exactEvent = this._eventsDoubleTap[event.index];
-                this.onDoubleTap(exactEvent.type);
-                this.onDoubleTapObservable.notifyObservers(exactEvent);
-            } else if (event.eventCollection === this._eventsTouch) {
-                const exactEvent = this._eventsTouch[event.index];
+            const event = eventBuffer.pop();
+            if (event === undefined) {
+                continue;
+            }
+            if (eventBuffer === this._eventsButtonDown) {
+                const typedEvent = <ICameraInputButtonDownEvent>event;
+                this.onButtonDown(typedEvent.event);
+                this.onButtonDownObservable.notifyObservers(typedEvent);
+            } else if (eventBuffer === this._eventsButtonUp) {
+                const typedEvent = <ICameraInputButtonUpEvent>event;
+                this.onButtonUp(typedEvent.event);
+                this.onButtonUpObservable.notifyObservers(typedEvent);
+            } else if (eventBuffer === this._eventsDoubleTap) {
+                const typedEvent = <ICameraInputDoubleTapEvent>event;
+                this.onDoubleTap(typedEvent.type);
+                this.onDoubleTapObservable.notifyObservers(typedEvent);
+            } else if (eventBuffer === this._eventsTouch) {
+                const typedEvent = <ICameraInputTouchEvent>event;
                 this.onTouch(
-                    exactEvent.point,
-                    exactEvent.offsetX,
-                    exactEvent.offsetY);
-                this.onTouchObservable.notifyObservers(exactEvent);
-            } else if (event.eventCollection === this._eventsMultiTouch) {
-                const exactEvent = this._eventsMultiTouch[event.index];
+                    typedEvent.point,
+                    typedEvent.offsetX,
+                    typedEvent.offsetY);
+                this.onTouchObservable.notifyObservers(typedEvent);
+            } else if (eventBuffer === this._eventsMultiTouch) {
+                const typedEvent = <ICameraInputMultiTouchEvent>event;
                 this.onMultiTouch(
-                    exactEvent.pointA,
-                    exactEvent.pointB,
-                    exactEvent.previousPinchSquaredDistance,
-                    exactEvent.pinchSquaredDistance,
-                    exactEvent.previousMultiTouchPanPosition,
-                    exactEvent.multiTouchPanPosition);
-                this.onMultiTouchObservable.notifyObservers(exactEvent);
+                    typedEvent.pointA,
+                    typedEvent.pointB,
+                    typedEvent.previousPinchSquaredDistance,
+                    typedEvent.pinchSquaredDistance,
+                    typedEvent.previousMultiTouchPanPosition,
+                    typedEvent.multiTouchPanPosition);
+                this.onMultiTouchObservable.notifyObservers(typedEvent);
             }
         }
-        this._eventsButtonDownCount = 0;
-        this._eventsButtonUpCount = 0;
-        this._eventsDoubleTapCount = 0;
-        this._eventsTouchCount = 0;
-        this._eventsMultiTouchCount = 0;
     }
 
     /**
@@ -413,7 +420,6 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * Called on pointer POINTERDOUBLETAP event.
      * Override this method to provide functionality on POINTERDOUBLETAP event.
      */
-    //private _onDoubleTapEvents: string[] = [];
     protected onDoubleTap(type: string) {
     }
 
@@ -469,122 +475,18 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
         evt.preventDefault();
     }
 
-    /**
-     * Queue events for later processing by checkInputs().
-     * See the comment in that function for a description.
-     */
-    private _pushEvent(event: _Event): void {
-        this._allEvents.push(event);
-    }
-    private _allEvents = new _EventRingBuffer<_Event>();
-
-    /**
-     * Queue a button down event for later processing.
-     */
-    private _pushEventButtonDown(event: ICameraInputButtonDownEvent): void {
-        if (this._eventsButtonDownCount >= this._eventsButtonDown.length) {
-            this._eventsButtonDown.push(event);
-        } else {
-            this._eventsButtonDown[this._eventsButtonDownCount] = event;
-        }
-
-        this._pushEvent({
-            index: this._eventsButtonDownCount,
-            eventCollection: this._eventsButtonDown,
-            debug: "ButtonDown"
-        });
-
-        this._eventsButtonDownCount++;
-    }
-    private _eventsButtonDownCount: number = 0;
-    private _eventsButtonDown: ICameraInputButtonDownEvent[] = [];
-
-    /**
-     * Queue a button up event for later processing.
-     */
-    private _pushEventButtonUp(event: ICameraInputButtonUpEvent): void {
-        if (this._eventsButtonUpCount >= this._eventsButtonUp.length) {
-            this._eventsButtonUp.push(event);
-        } else {
-            this._eventsButtonUp[this._eventsButtonUpCount] = event;
-        }
-
-        this._pushEvent({
-            index: this._eventsButtonUpCount,
-            eventCollection: this._eventsButtonUp,
-            debug: "ButtonUp"
-        });
-
-        this._eventsButtonUpCount++;
-    }
-    private _eventsButtonUpCount: number = 0;
-    private _eventsButtonUp: ICameraInputButtonUpEvent[] = [];
-
-    /**
-     * Queue a double tap event for later processing.
-     */
-    private _pushEventDoubleTap(event: ICameraInputDoubleTapEvent): void {
-        if (this._eventsDoubleTapCount >= this._eventsDoubleTap.length) {
-            this._eventsDoubleTap.push(event);
-            this._eventsDoubleTapCount++;
-        } else {
-            this._eventsDoubleTap[this._eventsDoubleTapCount] = event;
-        }
-
-        this._pushEvent({
-            index: this._eventsDoubleTapCount,
-            eventCollection: this._eventsDoubleTap,
-            debug: "DoubleTap"
-        });
-
-        this._eventsDoubleTapCount++;
-    }
-    private _eventsDoubleTapCount: number = 0;
-    private _eventsDoubleTap: ICameraInputDoubleTapEvent[] = [];
-
-    /**
-     * Queue a touch event for later processing.
-     * TODO: Coalesce these events.
-     */
-    private _pushEventTouch(event: ICameraInputTouchEvent): void {
-        if (this._eventsTouchCount >= this._eventsTouch.length) {
-            this._eventsTouch.push(event);
-        } else {
-            this._eventsTouch[this._eventsTouchCount] = event;
-        }
-
-        this._pushEvent({
-            index: this._eventsTouchCount,
-            eventCollection: this._eventsTouch,
-            debug: "Touch"
-        });
-
-        this._eventsTouchCount++;
-    }
-    private _eventsTouchCount: number = 0;
-    private _eventsTouch: ICameraInputTouchEvent[] = [];
-
-    /**
-     * Queue a multi touch event for later processing.
-     * TODO: Coalesce these events.
-     */
-    private _pushEventMultiTouch(event: ICameraInputMultiTouchEvent): void {
-        if (this._eventsMultiTouchCount >= this._eventsMultiTouch.length) {
-            this._eventsMultiTouch.push(event);
-        } else {
-            this._eventsMultiTouch[this._eventsMultiTouchCount] = event;
-        }
-
-        this._pushEvent({
-            index: this._eventsMultiTouchCount,
-            eventCollection: this._eventsMultiTouch,
-            debug: "MultiTouch"
-        });
-
-        this._eventsMultiTouchCount++;
-    }
-    private _eventsMultiTouchCount: number = 0;
-    private _eventsMultiTouch: ICameraInputMultiTouchEvent[] = [];
+    private _allEvents =
+        new _EventRingBuffer<_Event>("_allEvents");
+    private _eventsButtonDown =
+        new _EventRingBuffer<ICameraInputButtonDownEvent>("ButtonDown");
+    private _eventsButtonUp =
+        new _EventRingBuffer<ICameraInputButtonUpEvent>("ButtonUp");
+    private _eventsDoubleTap =
+        new _EventRingBuffer<ICameraInputDoubleTapEvent>("DoubleTap");
+    private _eventsTouch =
+        new _EventRingBuffer<ICameraInputTouchEvent>("Touch");
+    private _eventsMultiTouch =
+        new _EventRingBuffer<ICameraInputMultiTouchEvent>("MultiTouch");
 
     private _pointerInput: (p: PointerInfo, s: EventState) => void;
     private _observer: Nullable<Observer<PointerInfo>>;
@@ -597,15 +499,15 @@ class _EventRingBuffer<T> {
     private _head: number = 0;
     private _tail: number = 0;
     private _length: number = 0;
-    private _container: Nullable<T>[] = [];
+    private _container: (T | undefined)[] = [];
+    private _label: string = "";
+
+    constructor(label: string) {
+        this._label = label;
+    }
 
     public push(event: T): void {
-        if (this._head >= this._container.length) {
-            this._head = 0;            
-        }
-        if (this._tail >= this._container.length) {
-            this._tail = 0;            
-        }
+        this._wrapPointers();
         if (this._head === this._tail) {
             if (this._length > 0 || this._container.length === 0) {
                 // Buffer currently full.
@@ -621,19 +523,17 @@ class _EventRingBuffer<T> {
         this._length++;
     }
 
-    public pop(): (Nullable<T> | undefined) {
+    public pop(): (T | undefined) {
         if (this._length <= 0) {
             return undefined;
         }
+        this._wrapPointers();
 
-        const tail = this._tail;
+        const retVal = this._container[this._tail];
+        this._container[this._tail] = undefined;
+
         this._tail++;
-        if (this._tail >= this._container.length) {
-            this._tail = 0;
-        }
         this._length--;
-        const retVal = this._container[tail];
-        this._container[tail] = null;
         return retVal;
     }
 
@@ -645,13 +545,30 @@ class _EventRingBuffer<T> {
         console.table(this._container);
         console.log(this._tail, this._head, this._length, this._container.length);
     }
+
+    private _wrapPointers(): void {
+        if (this._head >= this._container.length) {
+            this._head = 0;            
+        }
+        if (this._tail >= this._container.length) {
+            this._tail = 0;            
+        }
+    }
 }
 
 // TODO Remove me and write unit tests for this.
-/*
-function testRingBuffer() {
-    const rb = new _EventRingBuffer<number>();
+// Pat particular attention to the rollover between end of array and start.
+/*function testRingBuffer() {
+    const rb = new _EventRingBuffer<number>("test");
     rb.dump();
+    console.assert(rb.length === 0);
+
+    rb.push(0);
+    rb.dump();
+    console.assert(rb.length === 1);
+    console.log(rb.pop());
+    rb.dump();
+    console.assert(rb.length === 0);
 
     rb.push(1);
     rb.dump();
@@ -665,7 +582,9 @@ function testRingBuffer() {
     rb.push(4);
     rb.dump();
 
+    console.assert(rb.length === 4);
     console.log(rb.pop(), rb.pop());
+    console.assert(rb.length === 2);
     rb.dump();
 
     rb.push(5);
@@ -679,6 +598,7 @@ function testRingBuffer() {
 
     rb.push(8);
     rb.dump();
+    console.assert(rb.length === 6);
 
     let a = undefined;
     do {
@@ -710,21 +630,16 @@ function testRingBuffer() {
 
     rb.push(8);
     rb.dump();
-}*/
-
-interface _Event {
-    index: number;
-    // TODO: Should eventCollection be Nullable?
-    // When we leave stale _events in the _allEvents collection for later
-    // recycling, do we care if we leave stale events in there?
-    // I can't think of a reason why it matters but it smells a little off to me.
-    eventCollection: (ICameraInputButtonDownEvent[] |
-                      ICameraInputButtonUpEvent[] |
-                      ICameraInputDoubleTapEvent[] |
-                      ICameraInputTouchEvent[] |
-                      ICameraInputMultiTouchEvent[]);
-    debug?: string;
 }
+testRingBuffer();*/
+
+type _Event = (
+    _EventRingBuffer<ICameraInputButtonDownEvent> |
+    _EventRingBuffer<ICameraInputButtonUpEvent> |
+    _EventRingBuffer<ICameraInputDoubleTapEvent> |
+    _EventRingBuffer<ICameraInputTouchEvent> |
+    _EventRingBuffer<ICameraInputMultiTouchEvent>
+);
 
 interface ICameraInputButtonDownEvent {
     event: PointerEvent;
