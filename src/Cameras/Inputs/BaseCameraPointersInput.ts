@@ -496,8 +496,9 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
 
     private _addEventsTouch(event: ICameraInputTouchEvent): void {
         if(this._allEvents.length > 0 &&
-            this._allEvents.lastPushed.label === this._eventsTouch.label) {
-            // Same event type as last frame; Merge new with last event.
+                this._allEvents.lastPushed === this._eventsTouch) {
+            // Same event type as last frame; Replace last event with new one.
+            this._eventsTouch.lastPushed = event;
         } else {
             // Push event to _eventsTouch queue.
             this._eventsTouch.push(event);
@@ -509,12 +510,18 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
     }
 
     private _addEventsMultiTouch(event: ICameraInputMultiTouchEvent): void {
-        // Push event to _eventsMultiTouch queue.
-        this._eventsMultiTouch.push(event);
+        if(this._allEvents.length > 0 &&
+                this._allEvents.lastPushed === this._eventsTouch) {
+            // Same event type as last frame; Replace last event with new one.
+            this._eventsMultiTouch.lastPushed = event;
+        } else {
+            // Push event to _eventsMultiTouch queue.
+            this._eventsMultiTouch.push(event);
 
-        // Push _eventsMultiTouch queue to _allEvents queue so we know what
-        // order to unwrap individual queues in.
-        this._allEvents.push(this._eventsMultiTouch);
+            // Push _eventsMultiTouch queue to _allEvents queue so we know what
+            // order to unwrap individual queues in.
+            this._allEvents.push(this._eventsMultiTouch);
+        }
     }
 
     private _allEvents =
