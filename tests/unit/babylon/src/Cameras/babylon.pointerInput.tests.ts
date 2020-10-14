@@ -109,15 +109,25 @@ function StubCameraInput() {
     cameraInput.lastOnMultiTouch = undefined;
     cameraInput.lastOnContextMenu = undefined;
     cameraInput.pointersDown = [];
+
+    cameraInput._buttonsPressed = 0;
+    cameraInput._pointA = null;
+    cameraInput._pointB = null;
+    cameraInput._allEvents.clear();
+    cameraInput._eventsButtonDown.clear();
+    cameraInput._eventsButtonUp.clear();
+    cameraInput._eventsDoubleTap.clear();
+    cameraInput._eventsTouch.clear();
+    cameraInput._eventsMultiTouch.clear();
   });
 
   cameraInput.reset();
 
   /**
    * Stub out all methods we want to test as part of the BaseCameraPointersInput testing.
-   * These stubs keep track of how many times they were called and 
+   * These stubs keep track of how many times they were called and
    */
-  cameraInput.onTouch = 
+  cameraInput.onTouch =
     ((point: BABYLON.Nullable<BABYLON.PointerTouch>, offsetX: number, offsetY: number) => {
       cameraInput.countOnTouch++;
       cameraInput.lastOnTouch = {point, offsetX, offsetY};
@@ -134,7 +144,7 @@ function StubCameraInput() {
       previousPinchSquaredDistance: number,
       pinchSquaredDistance: number,
       previousMultiTouchPanPosition: BABYLON.Nullable<BABYLON.PointerTouch>,
-      multiTouchPanPosition: BABYLON.Nullable<BABYLON.PointerTouch>) => 
+      multiTouchPanPosition: BABYLON.Nullable<BABYLON.PointerTouch>) =>
     {
       cameraInput.countOnMultiTouch++;
       cameraInput.lastOnMultiTouch = {
@@ -207,7 +217,7 @@ describe('BaseCameraPointersInput', function() {
     this._canvas = document.createElement("canvas");
     this._engine = new BABYLON.NullEngine();
     this._scene = new BABYLON.Scene(this._engine);
-    
+
     // Set up an instance of a Camera with the ArcRotateCameraPointersInput.
     this.camera = new BABYLON.ArcRotateCamera(
       "StubCamera", 0, 0, 0, new BABYLON.Vector3(0, 0, 0), this._scene);
@@ -219,6 +229,120 @@ describe('BaseCameraPointersInput', function() {
   beforeEach(function() {
     // runs before each test in this block
     this.cameraInput.reset();
+  });
+
+  describe('primatives', function() {
+    it('push pop ring buffer', function() {
+      expect(this.cameraInput._allEvents.length).to.equal(0);
+
+      this.cameraInput._allEvents.push();
+      this.cameraInput._allEvents.pushed.label = "newEntry1";
+      expect(this.cameraInput._allEvents.length).to.equal(1);
+
+      let popedEntry1 = this.cameraInput._allEvents.pop();
+      expect(this.cameraInput._allEvents.pushed).to.equal(popedEntry1);
+      expect(this.cameraInput._allEvents.length).to.equal(0);
+    });
+
+    it('multi push pop ring buffer', function() {
+      expect(this.cameraInput._allEvents.length).to.equal(0);
+
+      this.cameraInput._allEvents.push();
+      this.cameraInput._allEvents.pushed.label = "newEntry1";
+      this.cameraInput._allEvents.push();
+      this.cameraInput._allEvents.pushed.label = "newEntry2";
+      this.cameraInput._allEvents.push();
+      this.cameraInput._allEvents.pushed.label = "newEntry3";
+      expect(this.cameraInput._allEvents.length).to.equal(3);
+
+      let popedEntry1 = this.cameraInput._allEvents.pop();
+      expect(popedEntry1.label).to.equal("newEntry1");
+      let popedEntry2 = this.cameraInput._allEvents.pop();
+      expect(popedEntry2.label).to.equal("newEntry2");
+      let popedEntry3 = this.cameraInput._allEvents.pop();
+      expect(popedEntry3.label).to.equal("newEntry3");
+      let popedEntry4 = this.cameraInput._allEvents.pop();
+      expect(popedEntry4).to.equal(undefined);
+      expect(this.cameraInput._allEvents.length).to.equal(0);
+    });
+
+    it('recycle entries ring buffer', function() {
+      expect(this.cameraInput._allEvents.length).to.equal(0);
+
+      // Force the internal container to have 3 elements.
+      this.cameraInput._allEvents.push();
+      this.cameraInput._allEvents.push();
+      this.cameraInput._allEvents.push();
+      expect(this.cameraInput._allEvents.length).to.equal(3);
+      // Now empty it out. The internal container remains.
+      let popedEntry1 = this.cameraInput._allEvents.pop();
+      let popedEntry2 = this.cameraInput._allEvents.pop();
+      let popedEntry3 = this.cameraInput._allEvents.pop();
+      expect(this.cameraInput._allEvents.length).to.equal(0);
+
+      // Now loop through in a manner that overlaps the ends of the internal
+      // container sometimes.
+      for(let i = 0; i < 20; i++) {
+        this.cameraInput._allEvents.push();
+        this.cameraInput._allEvents.pushed.label = "newEntry1";
+        this.cameraInput._allEvents.push();
+        this.cameraInput._allEvents.pushed.label = "newEntry2";
+        expect(this.cameraInput._allEvents.length).to.equal(2);
+
+        let popedEntry1 = this.cameraInput._allEvents.pop();
+        expect(popedEntry1.label).to.equal("newEntry1");
+        let popedEntry2 = this.cameraInput._allEvents.pop();
+        expect(popedEntry2.label).to.equal("newEntry2");
+        expect(this.cameraInput._allEvents.length).to.equal(0);
+
+        this.cameraInput._allEvents.push();
+        this.cameraInput._allEvents.pushed.label = "newEntry3";
+        this.cameraInput._allEvents.push();
+        this.cameraInput._allEvents.pushed.label = "newEntry4";
+        this.cameraInput._allEvents.push();
+        this.cameraInput._allEvents.pushed.label = "newEntry5";
+        expect(this.cameraInput._allEvents.length).to.equal(3);
+
+        let popedEntry3 = this.cameraInput._allEvents.pop();
+        expect(popedEntry3.label).to.equal("newEntry3");
+        let popedEntry4 = this.cameraInput._allEvents.pop();
+        expect(popedEntry4.label).to.equal("newEntry4");
+        let popedEntry5 = this.cameraInput._allEvents.pop();
+        expect(popedEntry5.label).to.equal("newEntry5");
+        expect(this.cameraInput._allEvents.length).to.equal(0);
+      }
+    });
+
+    it('overflow ring buffer', function() {
+      let maxSize = this.cameraInput._allEvents._maxSize;
+      expect(this.cameraInput._allEvents.length).to.equal(0);
+
+      // Fill the buffer.
+      for(let i = 0; i < maxSize; i++) {
+        this.cameraInput._allEvents.push();
+        this.cameraInput._allEvents.pushed.label = `newEntry_${i}`;
+        expect(this.cameraInput._allEvents.length).to.equal(i + 1);
+      }
+
+      // Keep going event though we have exceeded the maximum buffer size.
+      for(let i = 0; i < maxSize * 2; i++) {
+        this.cameraInput._allEvents.push();
+        this.cameraInput._allEvents.pushed.label = `overflow_${i}`;
+        expect(this.cameraInput._allEvents.length).to.equal(maxSize);
+      }
+
+      // The data in the buffer is the newer set; Oldest data has been
+      // overwritten.
+      for(let i = maxSize; i < maxSize * 2; i++) {
+        let entry = this.cameraInput._allEvents.pop();
+        expect(entry.label).to.equal(`overflow_${i}`);
+      }
+
+      // Completely empty now.
+      expect(this.cameraInput._allEvents.length).to.equal(0);
+      let entry = this.cameraInput._allEvents.pop();
+      expect(entry).to.equal(undefined);
+    });
   });
 
   describe('queued event manager', function() {
@@ -235,11 +359,6 @@ describe('BaseCameraPointersInput', function() {
       event.button = 0;
       simulateEvent(this.cameraInput, event);
 
-      // Drag.
-      event.type = "pointermove";
-      event.button = 0;
-      simulateEvent(this.cameraInput, event);
-
       // Another button down.
       event.type = "pointerdown";
       event.button = 1;
@@ -252,13 +371,97 @@ describe('BaseCameraPointersInput', function() {
 
       // No render call so no callbacks have been called.
       expect(this.cameraInput.countOnTouch).to.equal(0);
+      expect(this.cameraInput.countOnMultiTouch).to.equal(0);
       expect(this.cameraInput.countOnButtonDown).to.equal(0);
       expect(this.cameraInput.countOnButtonUp).to.equal(0);
 
       // Call checkInputs().
       simulateRender(this.cameraInput);
       // Now callbacks have been called.
+      expect(this.cameraInput.countOnTouch).to.equal(1);
+      expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+      expect(this.cameraInput.countOnButtonDown).to.equal(2);
+      expect(this.cameraInput.countOnButtonUp).to.equal(1);
+    });
+
+    it('queues and coalesces events until a checkInputs() call', function() {
+      var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
+
+      // Button down.
+      event.type = "pointerdown";
+      event.button = 0;
+      event.pointerId = 1;
+      event.pointerType = "touch";
+      simulateEvent(this.cameraInput, event);
+
+      // First Touch event
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      // Another button down.
+      event.type = "pointerdown";
+      event.button = 1;
+      event.pointerId = 2;
+      event.pointerType = "touch";
+      simulateEvent(this.cameraInput, event);
+
+      // MultiTouch event.
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      // Button up.
+      event.type = "pointerup";
+      event.button = 1;
+      event.pointerId = 2;
+      event.pointerType = "touch";
+      simulateEvent(this.cameraInput, event);
+
+      // Second Touch event.
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      event.type = "pointermove";
+      event.button = 0;
+      simulateEvent(this.cameraInput, event);
+
+      // No render call so no callbacks have been called.
+      expect(this.cameraInput.countOnTouch).to.equal(0);
+      expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+      expect(this.cameraInput.countOnButtonDown).to.equal(0);
+      expect(this.cameraInput.countOnButtonUp).to.equal(0);
+
+      // Call checkInputs().
+      simulateRender(this.cameraInput);
+
+      // Now callbacks have been called.
+
+      // "touch" events in between button presses have been combined.
       expect(this.cameraInput.countOnTouch).to.equal(2);
+
+      expect(this.cameraInput.countOnMultiTouch).to.equal(1);
       expect(this.cameraInput.countOnButtonDown).to.equal(2);
       expect(this.cameraInput.countOnButtonUp).to.equal(1);
     });
@@ -279,7 +482,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnTouch).to.equal(0);
       expect(this.cameraInput.countOnButtonDown).to.equal(1);
       expect(this.cameraInput.countOnButtonUp).to.equal(0);
-      
+
       // Start moving.
       event.type = "pointermove";
       event.button = 0;
@@ -313,7 +516,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnTouch).to.equal(2);
       expect(this.cameraInput.countOnButtonDown).to.equal(1);
       expect(this.cameraInput.countOnButtonUp).to.equal(1);
-      
+
       // These callbacks were never called.
       expect(this.cameraInput.countOnDoubleTap).to.equal(0);
       expect(this.cameraInput.countOnMultiTouch).to.equal(0);
@@ -335,7 +538,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnTouch).to.equal(0);
       expect(this.cameraInput.countOnButtonDown).to.equal(1);
       expect(this.cameraInput.countOnButtonUp).to.equal(0);
-      
+
       // Start moving.
       event.type = "pointermove";
       event.button = 0;
@@ -369,7 +572,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnTouch).to.equal(2);
       expect(this.cameraInput.countOnButtonDown).to.equal(1);
       expect(this.cameraInput.countOnButtonUp).to.equal(1);
-      
+
       // Button down for 2nd time.
       event.type = "pointerdown";
       event.clientX = 100;
@@ -381,7 +584,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnTouch).to.equal(2);
       expect(this.cameraInput.countOnButtonDown).to.equal(2);
       expect(this.cameraInput.countOnButtonUp).to.equal(1);
-      
+
       // Start moving.
       event.type = "pointermove";
       event.button = 0;
@@ -415,7 +618,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnTouch).to.equal(4);
       expect(this.cameraInput.countOnButtonDown).to.equal(2);
       expect(this.cameraInput.countOnButtonUp).to.equal(2);
-      
+
       // These callbacks were never called.
       expect(this.cameraInput.countOnDoubleTap).to.equal(0);
       expect(this.cameraInput.countOnMultiTouch).to.equal(0);
@@ -423,7 +626,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnLostFocus).to.equal(0);
     });
   });
-  
+
   describe('two button drag', function() {
     it('calls "onMultiTouch" method', function() {
       var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
@@ -640,7 +843,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnButtonDown).to.equal(2);
       expect(this.cameraInput.countOnButtonUp).to.equal(1);
       expect(this.cameraInput.pointersDown).to.have.length(1);
-      
+
       // Other button up.
       event.type = "pointerup";
       event.pointerType = "touch";
@@ -651,7 +854,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnButtonDown).to.equal(2);
       expect(this.cameraInput.countOnButtonUp).to.equal(2);
       expect(this.cameraInput.pointersDown).to.have.length(0);
-      
+
       // These callbacks were never called.
       expect(this.cameraInput.countOnTouch).to.equal(0);
       expect(this.cameraInput.countOnMultiTouch).to.equal(0);
@@ -709,7 +912,7 @@ describe('BaseCameraPointersInput', function() {
       expect(this.cameraInput.countOnButtonUp).to.equal(1);
       // Button state gets cleared. No buttons registered as being down.
       expect(this.cameraInput.pointersDown).to.have.length(0);
-      
+
       // These callbacks were never called.
       expect(this.cameraInput.countOnTouch).to.equal(0);
       expect(this.cameraInput.countOnMultiTouch).to.equal(0);
@@ -757,7 +960,7 @@ describe('ArcRotateCameraInput', function() {
     camera._panningMouseButton = 2;
     camera.useInputToRestoreState = true;
     camera._useCtrlForPanning = true;
-    
+
     interestingValues.forEach((key) => {
       cameraCachePos[key] = camera[key];
     });
@@ -820,7 +1023,7 @@ describe('ArcRotateCameraInput', function() {
 
     this._canvas = document.createElement("canvas");
     this._scene = new BABYLON.Scene(new BABYLON.NullEngine());
-    
+
     // Set up an instance of a Camera with the ArcRotateCameraPointersInput.
     this.camera = new BABYLON.ArcRotateCamera(
       "Camera", 0, 0, 0, new BABYLON.Vector3(0, 0, 0), this._scene);
@@ -846,7 +1049,7 @@ describe('ArcRotateCameraInput', function() {
           this.cameraCachePos,
           {inertialAlphaOffset: ValChange.Decrease})
       ).to.be.true;
-      
+
       this.camera.inertialAlphaOffset = 10;
       this.cameraCachePos.inertialAlphaOffset = 9.999;
       expect(
@@ -856,7 +1059,7 @@ describe('ArcRotateCameraInput', function() {
           {inertialAlphaOffset: ValChange.Decrease})
       ).to.be.false;
     });
-  
+
     it('verifyChanges checks Same', function() {
       this.camera.inertialAlphaOffset = 10;
       this.cameraCachePos.inertialAlphaOffset = 10;
@@ -866,7 +1069,7 @@ describe('ArcRotateCameraInput', function() {
           this.cameraCachePos,
           {inertialAlphaOffset: ValChange.Same})
       ).to.be.true;
-      
+
       this.camera.inertialAlphaOffset = 10;
       this.cameraCachePos.inertialAlphaOffset = 10.001;
       expect(
@@ -876,7 +1079,7 @@ describe('ArcRotateCameraInput', function() {
           {inertialAlphaOffset: ValChange.Same})
       ).to.be.false;
     });
-  
+
     it('verifyChanges checks undefined', function() {
       // If the 'toCheck' field is undefined, treat is as ValChange.Same.
       this.camera.inertialAlphaOffset = 10;
@@ -887,7 +1090,7 @@ describe('ArcRotateCameraInput', function() {
           this.cameraCachePos,
           {})
       ).to.be.true;
-      
+
       this.camera.inertialAlphaOffset = 10;
       this.cameraCachePos.inertialAlphaOffset = 10.001;
       expect(
@@ -897,7 +1100,7 @@ describe('ArcRotateCameraInput', function() {
           {})
       ).to.be.false;
     });
-  
+
     it('verifyChanges checks DontCare', function() {
       this.camera.inertialAlphaOffset = 10;
       this.cameraCachePos.inertialAlphaOffset = 10;
@@ -907,7 +1110,7 @@ describe('ArcRotateCameraInput', function() {
           this.cameraCachePos,
           {inertialAlphaOffset: ValChange.DontCare})
       ).to.be.true;
-      
+
       this.camera.inertialAlphaOffset = 10;
       this.cameraCachePos.inertialAlphaOffset = 1001;
       expect(
@@ -917,7 +1120,7 @@ describe('ArcRotateCameraInput', function() {
           {inertialAlphaOffset: ValChange.DontCare})
       ).to.be.true;
     });
-  
+
     it('verifyChanges checks Increase', function() {
       this.camera.inertialAlphaOffset = 10;
       this.cameraCachePos.inertialAlphaOffset = 9.999;
@@ -927,7 +1130,7 @@ describe('ArcRotateCameraInput', function() {
           this.cameraCachePos,
           {inertialAlphaOffset: ValChange.Increase})
       ).to.be.true;
-      
+
       this.camera.inertialAlphaOffset = 10;
       this.cameraCachePos.inertialAlphaOffset = 10.001;
       expect(
@@ -951,7 +1154,7 @@ describe('ArcRotateCameraInput', function() {
       simulateEvent(this.cameraInput, event);
       simulateRender(this.cameraInput);
       expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
-      
+
       // Start moving.
       event.type = "pointermove";
       event.button = 0;
@@ -990,7 +1193,7 @@ describe('ArcRotateCameraInput', function() {
       simulateEvent(this.cameraInput, event);
       simulateRender(this.cameraInput);
       expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
-      
+
       // Start moving.
       event.type = "pointermove";
       event.button = 0;
@@ -1026,7 +1229,7 @@ describe('ArcRotateCameraInput', function() {
       simulateEvent(this.cameraInput, event);
       simulateRender(this.cameraInput);
       expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
-      
+
       // Start moving.
       event.type = "pointermove";
       event.button = 0;
@@ -1068,7 +1271,7 @@ describe('ArcRotateCameraInput', function() {
       simulateEvent(this.cameraInput, event);
       simulateRender(this.cameraInput);
       expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
-      
+
       // Start moving.
       event.type = "pointermove";
       event.button = 0;
@@ -1100,7 +1303,7 @@ describe('ArcRotateCameraInput', function() {
         this.cameraCachePos,
         {inertialPanningY: ValChange.Increase})
       ).to.be.true;
-      
+
       // Move X coordinate having released Ctrl.
       event.type = "pointermove";
       event.clientY = 3000;
@@ -1113,7 +1316,7 @@ describe('ArcRotateCameraInput', function() {
         this.cameraCachePos,
         {inertialBetaOffset: ValChange.Decrease})
       ).to.be.true;
-      
+
       // Button up. Primary button.
       event.type = "pointerup";
       event.button = 0;
@@ -1135,7 +1338,7 @@ describe('ArcRotateCameraInput', function() {
       simulateEvent(this.cameraInput, event);
       simulateRender(this.cameraInput);
       expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
-      
+
       // Start moving.
       event.type = "pointermove";
       event.button = 0;
@@ -1168,7 +1371,7 @@ describe('ArcRotateCameraInput', function() {
         this.cameraCachePos,
         {inertialBetaOffset: ValChange.Decrease})
       ).to.be.true;
-      
+
       // Move X coordinate having released Ctrl.
       event.type = "pointermove";
       event.clientY = 3000;
@@ -1181,7 +1384,7 @@ describe('ArcRotateCameraInput', function() {
         this.cameraCachePos,
         {inertialBetaOffset: ValChange.Decrease})
       ).to.be.true;
-      
+
       // Button up. Primary button.
       event.type = "pointerup";
       event.button = 0;
@@ -1322,7 +1525,7 @@ describe('ArcRotateCameraInput', function() {
         simulateRender(this.cameraInput);
         expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
       });
-      
+
       it('pinchDeltaPercentage disabled', function() {
 
         // Multiple button presses interpreted as "pinch" and "swipe".
@@ -1452,7 +1655,7 @@ describe('ArcRotateCameraInput', function() {
         simulateRender(this.cameraInput);
         expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
       });
-      
+
       it('pan on drag', function() {
 
         // Multiple button presses interpreted as "pinch" and "swipe".
@@ -1768,7 +1971,7 @@ describe('ArcRotateCameraInput', function() {
         simulateRender(this.cameraInput);
         expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
       });
-      
+
       it('pinchDeltaPercentage disabled', function() {
 
         // Multiple button presses not interpreted as multitouch.
@@ -2117,7 +2320,7 @@ describe('ArcRotateCameraInput', function() {
       event.type = "POINTERDOUBLETAP";
       simulateEvent(this.cameraInput, event);
       simulateRender(this.cameraInput);
-      
+
       expect(this.camera.alpha).to.be.equal(20);
       expect(this.camera.beta).to.be.equal(20);
       expect(this.camera.radius).to.be.equal(20);
@@ -2140,7 +2343,7 @@ describe('ArcRotateCameraInput', function() {
       event.type = "POINTERDOUBLETAP";
       simulateEvent(this.cameraInput, event);
       simulateRender(this.cameraInput);
-      
+
       expect(this.camera.alpha).to.be.equal(10);
       expect(this.camera.beta).to.be.equal(10);
       expect(this.camera.radius).to.be.equal(10);

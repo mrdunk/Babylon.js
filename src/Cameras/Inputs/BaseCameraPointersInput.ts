@@ -6,6 +6,9 @@ import { Camera } from "../../Cameras/camera";
 import { ICameraInput } from "../../Cameras/cameraInputsManager";
 import { PointerInfo, PointerEventTypes, PointerTouch } from "../../Events/pointerEvents";
 
+const DEBUG = false;
+const COALESCE = true;
+
 /**
  * Base class for Camera Pointer Inputs.
  * See FollowCameraPointersInput in src/Cameras/Inputs/followCameraPointersInput.ts
@@ -292,6 +295,13 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
         if (this.onMultiTouchObservable) {
             this.onMultiTouchObservable.clear();
         }
+
+        this._allEvents.clear();
+        this._eventsButtonDown.clear();
+        this._eventsButtonUp.clear();
+        this._eventsDoubleTap.clear();
+        this._eventsTouch.clear();
+        this._eventsMultiTouch.clear();
     }
 
     /**
@@ -301,31 +311,48 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
      * possible.
      */
     public checkInputs(): void {
-        // if(this._allEvents.length > 0) {
-        //     this._allEvents.dump();
-        // }
-        while (this._allEvents.length > 0) {
-            // A previous iteration of this code called the event handlers from
-            // within `this._pointerInput()`.
-            // Now we call them from here we face the challenge of maintaining
-            // the order of the events across event types.
-            // Eg: A user clicking the mouse twice needs to cause
-            // onButtonDown(...), onButtonUp(...), onButtonDown(...), onButtonUp(...)
-            // to be called in that exact order.
-            //
-            // this._allEvents contains indexes into the lists of event types in
-            // the order they were triggered.
+        // A previous iteration of this code called the event handlers from
+        // within `this._pointerInput()`.
+        // Now we call them from here we face the challenge of maintaining the
+        // order of the events across event types.
+        // Eg: A user clicking the mouse twice needs to cause
+        // onButtonDown(...), onButtonUp(...), onButtonDown(...), onButtonUp(...)
+        // to be called in that exact order.
+        //
+        // There is a buffer per-event type.
+        // eg: `this._eventsButtonDown` contains all the "mouse-down" events in
+        // the last frame.
+        //
+        // There is also a buffer that contains references to the per-event
+        // buffers in the order they were populated.
+        // eg: If a mouse button was clicket, `this._allEvents` would contain
+        // references to
+        // [`this._eventsButtonDown`, `this._eventsButtonUp`].
+        //
+        // The code below replays the events in the order they were stored.
 
+        if(this._allEvents.length > 0 && DEBUG) {
+            this._allEvents.dump();
+        }
+        while (this._allEvents.length > 0) {
+            // Get per-event buffer that was populated earliest.
             const eventBuffer = this._allEvents.pop();
             console.assert(eventBuffer !== undefined, "Invalid event.");
-            if(eventBuffer === undefined || eventBuffer === null) {  // TODO: Why both of these?
-                break;
+            if(eventBuffer === undefined ) {
+                continue;
+            }
+            if (DEBUG) {
+                eventBuffer.label = "stale";
             }
 
+            // Get specific event that was populated earliest from the per-event
+            // buffer.
             const event = eventBuffer.buffer.pop();
+            console.assert(event !== undefined, "Invalid event.");
             if (event === undefined) {
                 continue;
             }
+
             if (eventBuffer.buffer === this._eventsButtonDown) {
                 const typedEvent = <ICameraInputButtonDownEvent>event;
                 this.onButtonDown(typedEvent.event);
@@ -468,6 +495,9 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
         // order to unwrap individual queues in.
         this._allEvents.push();
         this._allEvents.pushed.buffer = this._eventsButtonDown;
+        if (DEBUG) {
+            this._allEvents.pushed.label = this._eventsButtonDown.label;
+        }
     }
 
     private _addEventsButtonUp(event: PointerEvent): void {
@@ -479,6 +509,9 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
         // order to unwrap individual queues in.
         this._allEvents.push();
         this._allEvents.pushed.buffer = this._eventsButtonUp;
+        if (DEBUG) {
+            this._allEvents.pushed.label = this._eventsButtonUp.label;
+        }
     }
 
     private _addEventsDoubleTap(eventType: string): void {
@@ -490,62 +523,88 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
         // order to unwrap individual queues in.
         this._allEvents.push();
         this._allEvents.pushed.buffer = this._eventsDoubleTap;
+        if (DEBUG) {
+            this._allEvents.pushed.label = this._eventsDoubleTap.label;
+        }
     }
 
-    private _addEventsTouch(point: Nullable<PointerTouch>,
-                            offsetX: number,
-                            offsetY: number): void {
-        if(this._allEvents.length > 0 &&
-                this._allEvents.pushed.buffer === this._eventsTouch) {
-            // Same event type as last frame; Replace last pushed event with new
-            // one so do nothing here.
-        } else {
+    private _addEventsTouch(
+        point: Nullable<PointerTouch>, offsetX: number, offsetY: number): void {
+            if(COALESCE &&
+                    this._allEvents.length > 0 &&
+                    this._allEvents.pushed.buffer === this._eventsTouch) {
+                // Same event type as last frame;
+                // Update the last pushed event in the buffer.
+                this._eventsTouch.pushed.point = point;
+                this._eventsTouch.pushed.offsetX = offsetX;
+                this._eventsTouch.pushed.offsetY = offsetY;
+                return;
+            } 
+
             // Push event to _eventsTouch queue.
             this._eventsTouch.push();
-        }
-        // Update the last pushed event in the buffer.
-        this._eventsTouch.pushed.point = point;
-        this._eventsTouch.pushed.offsetX = offsetX;
-        this._eventsTouch.pushed.offsetY = offsetY;
 
-        // Push _eventsTouch queue to _allEvents queue so we know what
-        // order to unwrap individual queues in.
-        this._allEvents.push();
-        this._allEvents.pushed.buffer = this._eventsTouch;
+            // Update the new (recycled actually) event in the buffer.
+            this._eventsTouch.pushed.point = point;
+            this._eventsTouch.pushed.offsetX = offsetX;
+            this._eventsTouch.pushed.offsetY = offsetY;
+
+            // Push _eventsTouch queue to _allEvents queue so we know what
+            // order to unwrap individual queues in.
+            this._allEvents.push();
+            this._allEvents.pushed.buffer = this._eventsTouch;
+            if (DEBUG) {
+                this._allEvents.pushed.label = this._eventsTouch.label;
+            }
     }
 
     private _addEventsMultiTouch(
-            pointA: Nullable<PointerTouch>,
-            pointB: Nullable<PointerTouch>,
-            previousPinchSquaredDistance: number,
-            pinchSquaredDistance: number,
-            previousMultiTouchPanPosition: Nullable<PointerTouch>,
-            multiTouchPanPosition: Nullable<PointerTouch>): void {
-        if(this._allEvents.length > 0 &&
-                this._allEvents.pushed.buffer === this._eventsTouch) {
-            // Same event type as last frame; Replace last pushed event with new
-            // one so do nothing here.
-        } else {
+        pointA: Nullable<PointerTouch>,
+        pointB: Nullable<PointerTouch>,
+        previousPinchSquaredDistance: number,
+        pinchSquaredDistance: number,
+        previousMultiTouchPanPosition: Nullable<PointerTouch>,
+        multiTouchPanPosition: Nullable<PointerTouch>): void {
+            if(COALESCE &&
+                    this._allEvents.length > 0 &&
+                    this._allEvents.pushed.buffer === this._eventsMultiTouch) {
+                // Same event type as last frame;
+                // Update the last pushed event in the buffer.
+                this._eventsMultiTouch.pushed.pointA = pointA;
+                this._eventsMultiTouch.pushed.pointB = pointB;
+                this._eventsMultiTouch.pushed.previousPinchSquaredDistance =
+                    previousPinchSquaredDistance;
+                this._eventsMultiTouch.pushed.pinchSquaredDistance =
+                    pinchSquaredDistance;
+                this._eventsMultiTouch.pushed.previousMultiTouchPanPosition =
+                    previousMultiTouchPanPosition;
+                this._eventsMultiTouch.pushed.multiTouchPanPosition =
+                    multiTouchPanPosition;
+                return;
+            } 
             // Push event to _eventsMultiTouch queue.
             this._eventsMultiTouch.push();
-        }
-        // Update the last pushed event in the buffer.
-        this._eventsMultiTouch.pushed.pointA = pointA;
-        this._eventsMultiTouch.pushed.pointB = pointB;
-        this._eventsMultiTouch.pushed.previousPinchSquaredDistance =
+
+            // Update the new (recycled actually) event in the buffer.
+            this._eventsMultiTouch.pushed.pointA = pointA;
+            this._eventsMultiTouch.pushed.pointB = pointB;
+            this._eventsMultiTouch.pushed.previousPinchSquaredDistance =
                 previousPinchSquaredDistance;
-        this._eventsMultiTouch.pushed.pinchSquaredDistance =
+            this._eventsMultiTouch.pushed.pinchSquaredDistance =
                 pinchSquaredDistance;
-        this._eventsMultiTouch.pushed.previousMultiTouchPanPosition =
+            this._eventsMultiTouch.pushed.previousMultiTouchPanPosition =
                 previousMultiTouchPanPosition;
-        this._eventsMultiTouch.pushed.multiTouchPanPosition =
+            this._eventsMultiTouch.pushed.multiTouchPanPosition =
                 multiTouchPanPosition;
-                
-        // Push _eventsMultiTouch queue to _allEvents queue so we know what
-        // order to unwrap individual queues in.
-        this._allEvents.push();
-        this._allEvents.pushed.buffer = this._eventsMultiTouch;
-    }
+
+            // Push _eventsMultiTouch queue to _allEvents queue so we know what
+            // order to unwrap individual queues in.
+            this._allEvents.push();
+            this._allEvents.pushed.buffer = this._eventsMultiTouch;
+            if (DEBUG) {
+                this._allEvents.pushed.label = this._eventsMultiTouch.label;
+            }
+        }
 
     private _allEvents =
         new _EventRingBuffer<IEvent>("_allEvents");
@@ -579,8 +638,10 @@ class _EventRingBuffer<T> {
     private _tail: number = 0;
     private _length: number = 0;
     private _container: T[] = [];
-    public label: string = "";
     public pushed: T;
+    
+    // Not strictly necessary but greatly aids debugging.
+    public label: string = "";
 
     constructor(label: string) {
         this.label = label;
@@ -636,6 +697,14 @@ class _EventRingBuffer<T> {
         return retVal;
     }
 
+    public clear(): void {
+        this._head = 0;
+        this._tail = 0;
+        this._length = 0;
+        this._container = [];
+        this.pushed = <T>{};
+    }
+
     get length(): number {
         return this._length;
     }
@@ -645,7 +714,11 @@ class _EventRingBuffer<T> {
      */
     public dump(): void {
         console.table(this._container);
-        console.log(this._tail, this._head, this._length, this._container.length);
+        console.log(
+            `tail: ${this._tail} ` +
+            `head: ${this._head} ` +
+            `length: ${this._length} ` +
+            `container.length: ${this._container.length}`);
     }
 
     /**
@@ -745,6 +818,7 @@ interface IEvent {
         _EventRingBuffer<ICameraInputDoubleTapEvent> |
         _EventRingBuffer<ICameraInputTouchEvent> |
         _EventRingBuffer<ICameraInputMultiTouchEvent>);
+    label: string;
 }
 
 interface ICameraInputButtonDownEvent {
