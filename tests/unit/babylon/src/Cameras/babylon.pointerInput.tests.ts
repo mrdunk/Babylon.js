@@ -74,6 +74,13 @@ function simulateEvent(cameraInput: BABYLON.ICameraInput<BABYLON.Camera>, event:
 }
 
 /**
+ * Simulate the screen render.
+ */
+function simulateRender(cameraInput: BABYLON.ICameraInput<BABYLON.Camera>) {
+  cameraInput.checkInputs();
+}
+
+/**
  * Override the methods of an existing camera to create a stub for testing
  * BaseCameraPointersInput.
  * @returns An instance of ArcRotateCameraPointersInput with the interesting
@@ -82,7 +89,7 @@ function simulateEvent(cameraInput: BABYLON.ICameraInput<BABYLON.Camera>, event:
 function StubCameraInput() {
     // Force our CameraPointersInput instance to type "any" so we can access
     // protected methods from within this function.
-    let cameraInput: any = <any>new BABYLON.ArcRotateCameraPointersInput();
+    let cameraInput: any = (<any>new BABYLON.ArcRotateCameraPointersInput());
 
     /**
      * Reset all counters.
@@ -100,20 +107,29 @@ function StubCameraInput() {
         cameraInput.lastOnTouch = undefined;
         cameraInput.lastOnMultiTouch = undefined;
         cameraInput.lastOnContextMenu = undefined;
-        cameraInput.lastOnButtonDown = undefined;
-        cameraInput.lastOnButtonUp = undefined;
+        cameraInput.pointersDown = [];
+
+        cameraInput._buttonsPressed = 0;
+        cameraInput._pointA = null;
+        cameraInput._pointB = null;
+        cameraInput._allEvents.clear();
+        cameraInput._eventsButtonDown.clear();
+        cameraInput._eventsButtonUp.clear();
+        cameraInput._eventsDoubleTap.clear();
+        cameraInput._eventsTouch.clear();
+        cameraInput._eventsMultiTouch.clear();
     };
 
     cameraInput.reset();
 
     /**
-     * Stub out all mothods we want to test as part of the BaseCameraPointersInput testing.
+     * Stub out all methods we want to test as part of the BaseCameraPointersInput testing.
      * These stubs keep track of how many times they were called and
      */
     cameraInput.onTouch = (point: BABYLON.Nullable<BABYLON.PointerTouch>, offsetX: number, offsetY: number) => {
-        cameraInput.countOnTouch++;
-        cameraInput.lastOnTouch = { point, offsetX, offsetY };
-    };
+          cameraInput.countOnTouch++;
+          cameraInput.lastOnTouch = {point, offsetX, offsetY};
+      };
 
     cameraInput.onDoubleTap = (type: string) => {
         cameraInput.countOnDoubleTap++;
@@ -141,14 +157,24 @@ function StubCameraInput() {
 
     cameraInput.onButtonDown = (evt: PointerEvent) => {
         cameraInput.countOnButtonDown++;
-        let buttonCount = cameraInput.pointB !== null ? 2 : 1;
-        cameraInput.lastOnButtonDown = { evt, buttonCount };
+
+        // BaseCameraPointersInput.ts tracks a maximum of 2 pointers.
+        const index = cameraInput.pointersDown.indexOf(evt.pointerId);
+        if(index < 0 && cameraInput.pointersDown.length < 2) {
+          cameraInput.pointersDown.push(evt.pointerId);
+        };
     };
 
     cameraInput.onButtonUp = (evt: PointerEvent) => {
         cameraInput.countOnButtonUp++;
-        let buttonCount = cameraInput.pointA !== null ? 1 : 0;
-        cameraInput.lastOnButtonUp = { evt, buttonCount };
+        const index = cameraInput.pointersDown.indexOf(evt.pointerId);
+        if(index >= 0) {
+            cameraInput.pointersDown.splice(index, 1);
+        } else {
+            // BaseCameraPointersInput.ts tracks a maximum of 2 pointers.
+            // If an un-tracked one is released, the whole state is reset.
+            cameraInput.pointersDown = [];
+        }
     };
 
     cameraInput.onContextMenu = (evt: PointerEvent) => {
@@ -201,6 +227,242 @@ describe("BaseCameraPointersInput", function () {
         this.cameraInput.reset();
     });
 
+	describe('primatives', function() {
+		it('push pop ring buffer', function() {
+			expect(this.cameraInput._allEvents.length).to.equal(0);
+
+			this.cameraInput._allEvents.push();
+			this.cameraInput._allEvents.pushed.label = "newEntry1";
+			expect(this.cameraInput._allEvents.length).to.equal(1);
+
+			let popedEntry1 = this.cameraInput._allEvents.pop();
+			expect(this.cameraInput._allEvents.pushed).to.equal(popedEntry1);
+			expect(this.cameraInput._allEvents.length).to.equal(0);
+		});
+
+		it('multi push pop ring buffer', function() {
+			expect(this.cameraInput._allEvents.length).to.equal(0);
+
+			this.cameraInput._allEvents.push();
+			this.cameraInput._allEvents.pushed.label = "newEntry1";
+			this.cameraInput._allEvents.push();
+			this.cameraInput._allEvents.pushed.label = "newEntry2";
+			this.cameraInput._allEvents.push();
+			this.cameraInput._allEvents.pushed.label = "newEntry3";
+			expect(this.cameraInput._allEvents.length).to.equal(3);
+
+			let popedEntry1 = this.cameraInput._allEvents.pop();
+			expect(popedEntry1.label).to.equal("newEntry1");
+			let popedEntry2 = this.cameraInput._allEvents.pop();
+			expect(popedEntry2.label).to.equal("newEntry2");
+			let popedEntry3 = this.cameraInput._allEvents.pop();
+			expect(popedEntry3.label).to.equal("newEntry3");
+			let popedEntry4 = this.cameraInput._allEvents.pop();
+			expect(popedEntry4).to.equal(undefined);
+			expect(this.cameraInput._allEvents.length).to.equal(0);
+		});
+
+		it('recycle entries ring buffer', function() {
+			expect(this.cameraInput._allEvents.length).to.equal(0);
+
+			// Force the internal container to have 3 elements.
+			this.cameraInput._allEvents.push();
+			this.cameraInput._allEvents.push();
+			this.cameraInput._allEvents.push();
+			expect(this.cameraInput._allEvents.length).to.equal(3);
+			// Now empty it out. The internal container remains.
+			let popedEntry1 = this.cameraInput._allEvents.pop();
+			let popedEntry2 = this.cameraInput._allEvents.pop();
+			let popedEntry3 = this.cameraInput._allEvents.pop();
+			expect(this.cameraInput._allEvents.length).to.equal(0);
+
+			// Now loop through in a manner that overlaps the ends of the internal
+			// container sometimes.
+			for(let i = 0; i < 20; i++) {
+				this.cameraInput._allEvents.push();
+				this.cameraInput._allEvents.pushed.label = "newEntry1";
+				this.cameraInput._allEvents.push();
+				this.cameraInput._allEvents.pushed.label = "newEntry2";
+				expect(this.cameraInput._allEvents.length).to.equal(2);
+
+				let popedEntry1 = this.cameraInput._allEvents.pop();
+				expect(popedEntry1.label).to.equal("newEntry1");
+				let popedEntry2 = this.cameraInput._allEvents.pop();
+				expect(popedEntry2.label).to.equal("newEntry2");
+				expect(this.cameraInput._allEvents.length).to.equal(0);
+
+				this.cameraInput._allEvents.push();
+				this.cameraInput._allEvents.pushed.label = "newEntry3";
+				this.cameraInput._allEvents.push();
+				this.cameraInput._allEvents.pushed.label = "newEntry4";
+				this.cameraInput._allEvents.push();
+				this.cameraInput._allEvents.pushed.label = "newEntry5";
+				expect(this.cameraInput._allEvents.length).to.equal(3);
+
+				let popedEntry3 = this.cameraInput._allEvents.pop();
+				expect(popedEntry3.label).to.equal("newEntry3");
+				let popedEntry4 = this.cameraInput._allEvents.pop();
+				expect(popedEntry4.label).to.equal("newEntry4");
+				let popedEntry5 = this.cameraInput._allEvents.pop();
+				expect(popedEntry5.label).to.equal("newEntry5");
+				expect(this.cameraInput._allEvents.length).to.equal(0);
+			}
+		});
+
+		it('overflow ring buffer', function() {
+			let maxSize = this.cameraInput._allEvents._maxSize;
+			expect(this.cameraInput._allEvents.length).to.equal(0);
+
+			// Fill the buffer.
+			for(let i = 0; i < maxSize; i++) {
+				this.cameraInput._allEvents.push();
+				this.cameraInput._allEvents.pushed.label = `newEntry_${i}`;
+				expect(this.cameraInput._allEvents.length).to.equal(i + 1);
+			}
+
+			// Keep going event though we have exceeded the maximum buffer size.
+			for(let i = 0; i < maxSize * 2; i++) {
+				this.cameraInput._allEvents.push();
+				this.cameraInput._allEvents.pushed.label = `overflow_${i}`;
+				expect(this.cameraInput._allEvents.length).to.equal(maxSize);
+			}
+
+			// The data in the buffer is the newer set; Oldest data has been
+			// overwritten.
+			for(let i = maxSize; i < maxSize * 2; i++) {
+				let entry = this.cameraInput._allEvents.pop();
+				expect(entry.label).to.equal(`overflow_${i}`);
+			}
+
+			// Completely empty now.
+			expect(this.cameraInput._allEvents.length).to.equal(0);
+			let entry = this.cameraInput._allEvents.pop();
+			expect(entry).to.equal(undefined);
+		});
+	});
+
+	describe('queued event manager', function() {
+		it('queues events until a checkInputs() call', function() {
+			var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
+
+			// Button down.
+			event.type = "pointerdown";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			// Start moving.
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			// Another button down.
+			event.type = "pointerdown";
+			event.button = 1;
+			simulateEvent(this.cameraInput, event);
+
+			// Button up.
+			event.type = "pointerup";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			// No render call so no callbacks have been called.
+			expect(this.cameraInput.countOnTouch).to.equal(0);
+			expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+			expect(this.cameraInput.countOnButtonDown).to.equal(0);
+			expect(this.cameraInput.countOnButtonUp).to.equal(0);
+
+			// Call checkInputs().
+			simulateRender(this.cameraInput);
+			// Now callbacks have been called.
+			expect(this.cameraInput.countOnTouch).to.equal(1);
+			expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+			expect(this.cameraInput.countOnButtonDown).to.equal(2);
+			expect(this.cameraInput.countOnButtonUp).to.equal(1);
+		});
+
+		it('queues and coalesces events until a checkInputs() call', function() {
+			var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
+
+			// Button down.
+			event.type = "pointerdown";
+			event.button = 0;
+			event.pointerId = 1;
+			event.pointerType = "touch";
+			simulateEvent(this.cameraInput, event);
+
+			// First Touch event
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			// Another button down.
+			event.type = "pointerdown";
+			event.button = 1;
+			event.pointerId = 2;
+			event.pointerType = "touch";
+			simulateEvent(this.cameraInput, event);
+
+			// MultiTouch event.
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			// Button up.
+			event.type = "pointerup";
+			event.button = 1;
+			event.pointerId = 2;
+			event.pointerType = "touch";
+			simulateEvent(this.cameraInput, event);
+
+			// Second Touch event.
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			event.type = "pointermove";
+			event.button = 0;
+			simulateEvent(this.cameraInput, event);
+
+			// No render call so no callbacks have been called.
+			expect(this.cameraInput.countOnTouch).to.equal(0);
+			expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+			expect(this.cameraInput.countOnButtonDown).to.equal(0);
+			expect(this.cameraInput.countOnButtonUp).to.equal(0);
+
+			// Call checkInputs().
+			simulateRender(this.cameraInput);
+
+			// Now callbacks have been called.
+
+			// "touch" events in between button presses have been combined.
+			expect(this.cameraInput.countOnTouch).to.equal(2);
+
+			expect(this.cameraInput.countOnMultiTouch).to.equal(1);
+			expect(this.cameraInput.countOnButtonDown).to.equal(2);
+			expect(this.cameraInput.countOnButtonUp).to.equal(1);
+		});
+	});
+
     describe("one button drag", function () {
         it('calls "onTouch" method', function () {
             var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
@@ -211,6 +473,7 @@ describe("BaseCameraPointersInput", function () {
             event.clientY = 200;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Button down but no movement events have fired yet.
             expect(this.cameraInput.countOnTouch).to.equal(0);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
@@ -220,6 +483,7 @@ describe("BaseCameraPointersInput", function () {
             event.type = "pointermove";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(1);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -232,6 +496,7 @@ describe("BaseCameraPointersInput", function () {
             event.clientX = 1000;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(2);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -243,6 +508,7 @@ describe("BaseCameraPointersInput", function () {
             event.type = "pointerup";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(2);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
@@ -263,6 +529,7 @@ describe("BaseCameraPointersInput", function () {
             event.clientY = 200;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Button down but no movement events have fired yet.
             expect(this.cameraInput.countOnTouch).to.equal(0);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
@@ -272,6 +539,7 @@ describe("BaseCameraPointersInput", function () {
             event.type = "pointermove";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(1);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -284,6 +552,7 @@ describe("BaseCameraPointersInput", function () {
             event.clientX = 1000;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(2);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -295,6 +564,7 @@ describe("BaseCameraPointersInput", function () {
             event.type = "pointerup";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(2);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
@@ -305,6 +575,7 @@ describe("BaseCameraPointersInput", function () {
             event.clientY = 200;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Button down but no movement events have fired yet.
             expect(this.cameraInput.countOnTouch).to.equal(2);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
@@ -314,6 +585,7 @@ describe("BaseCameraPointersInput", function () {
             event.type = "pointermove";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(3);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
@@ -326,6 +598,7 @@ describe("BaseCameraPointersInput", function () {
             event.clientY = 2000;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(4);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
@@ -337,6 +610,7 @@ describe("BaseCameraPointersInput", function () {
             event.type = "pointerup";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnTouch).to.equal(4);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(2);
@@ -361,6 +635,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = 0;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Button down but no movement events have fired yet.
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -372,6 +647,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Moving with one button down will start a drag.
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -385,6 +661,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // One button drag.
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -397,6 +674,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = 1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // 2nd button down but hasn't moved yet.
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -410,6 +688,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = -1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Start of drag with 2 buttons down.
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -429,6 +708,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = -1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Moving two button drag.
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -447,6 +727,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Moving two button drag.
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
@@ -459,6 +740,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = 0;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Button up.
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
@@ -480,6 +762,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = -1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Back to one button drag.
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
@@ -492,6 +775,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = 1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Button up.
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(2);
@@ -505,6 +789,7 @@ describe("BaseCameraPointersInput", function () {
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Not dragging anymore so no change in callbacks.
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(2);
@@ -528,9 +813,10 @@ describe("BaseCameraPointersInput", function () {
             event.button = 0;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-            expect(this.cameraInput.lastOnButtonDown.buttonCount).to.be.equal(1);
+			expect(this.cameraInput.pointersDown).to.be.have.length(1);
 
             // 2nd button down.
             event.type = "pointerdown";
@@ -538,9 +824,10 @@ describe("BaseCameraPointersInput", function () {
             event.button = 1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-            expect(this.cameraInput.lastOnButtonDown.buttonCount).to.be.equal(2);
+			expect(this.cameraInput.pointersDown).to.be.have.length(2);
 
             // One button up.
             event.type = "pointerup";
@@ -548,9 +835,10 @@ describe("BaseCameraPointersInput", function () {
             event.button = 1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
-            expect(this.cameraInput.lastOnButtonUp.buttonCount).to.be.equal(1);
+			expect(this.cameraInput.pointersDown).to.be.have.length(1);
 
             // Other button up.
             event.type = "pointerup";
@@ -558,9 +846,10 @@ describe("BaseCameraPointersInput", function () {
             event.button = 0;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(2);
-            expect(this.cameraInput.lastOnButtonUp.buttonCount).to.be.equal(0);
+			expect(this.cameraInput.pointersDown).to.be.have.length(0);
 
             // These callbacks were never called.
             expect(this.cameraInput.countOnTouch).to.equal(0);
@@ -579,9 +868,10 @@ describe("BaseCameraPointersInput", function () {
             event.button = 0;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-            expect(this.cameraInput.lastOnButtonDown.buttonCount).to.be.equal(1);
+			expect(this.cameraInput.pointersDown).to.be.have.length(1);
 
             // 2nd button down.
             event.type = "pointerdown";
@@ -589,9 +879,10 @@ describe("BaseCameraPointersInput", function () {
             event.button = 1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-            expect(this.cameraInput.lastOnButtonDown.buttonCount).to.be.equal(2);
+			expect(this.cameraInput.pointersDown).to.be.have.length(2);
 
             // 3rd button down.
             event.type = "pointerdown";
@@ -599,11 +890,12 @@ describe("BaseCameraPointersInput", function () {
             event.button = 2;
             event.pointerId = 3;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             // Only 2 buttons are tracked.
             // onButtonDown() gets called but nothing else changes.
             expect(this.cameraInput.countOnButtonDown).to.equal(3);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-            expect(this.cameraInput.lastOnButtonDown.buttonCount).to.be.equal(2);
+			expect(this.cameraInput.pointersDown).to.be.have.length(2);
 
             // One button up.
             event.type = "pointerup";
@@ -611,10 +903,11 @@ describe("BaseCameraPointersInput", function () {
             event.button = 1;
             event.pointerId = 99;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(3);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
             // Button state gets cleared. No buttons registered as being down.
-            expect(this.cameraInput.lastOnButtonUp.buttonCount).to.be.equal(0);
+			expect(this.cameraInput.pointersDown).to.be.have.length(0);
 
             // These callbacks were never called.
             expect(this.cameraInput.countOnTouch).to.equal(0);
@@ -642,6 +935,54 @@ describe("ArcRotateCameraInput", function () {
         Decrease,
         DontCare,
     }
+
+    const interestingValues = [
+        "inertialPanningX",
+        "inertialPanningY",
+        "inertialAlphaOffset",
+        "inertialBetaOffset",
+        "inertialRadiusOffset",
+    ];
+
+    function resetCameraPos(camera: BABYLON.ArcRotateCamera, cameraCachePos: {}) {
+        camera.alpha = 10;
+        camera.beta = 20;
+        camera.radius = 30;
+        camera.inertialPanningX = 0;
+        camera.inertialPanningY = 0;
+        camera.inertialAlphaOffset = 0;
+        camera.inertialBetaOffset = 0;
+        camera.inertialRadiusOffset = 0;
+        camera._panningMouseButton = 2;
+        camera.useInputToRestoreState = true;
+        camera._useCtrlForPanning = true;
+
+        interestingValues.forEach((key) => {
+            cameraCachePos[key] = camera[key];
+        });
+    }
+
+    function verifyChanges(
+        camera: BABYLON.ArcRotateCamera,
+        cameraCachePos: {},
+        toCheck: {[key: string]: ValChange}): boolean {
+            let result = true;
+            interestingValues.forEach((key) => {
+                if (toCheck[key] === undefined) {
+                    toCheck[key] = ValChange.Same;
+                }
+                let r = (
+                    toCheck[key] === ValChange.DontCare ||
+                    (toCheck[key] === ValChange.Decrease && camera[key] < cameraCachePos[key]) ||
+                    (toCheck[key] === ValChange.Same && camera[key] === cameraCachePos[key]) ||
+                    (toCheck[key] === ValChange.Increase && camera[key] > cameraCachePos[key])
+                );
+                if (!r) {
+                    console.log(
+                        `Incorrect value for ${key}, previous: ${cameraCachePos[key]}, current: ${camera[key]}`
+                    );
+                }
+                result = result && r;
 
     const interestingValues = ["inertialPanningX", "inertialPanningY", "inertialAlphaOffset", "inertialBetaOffset", "inertialRadiusOffset"];
 
@@ -787,12 +1128,14 @@ describe("ArcRotateCameraInput", function () {
             event.clientY = 200;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Start moving.
             event.type = "pointermove";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Move X coordinate. Drag camera.
@@ -800,12 +1143,14 @@ describe("ArcRotateCameraInput", function () {
             event.clientX = 1000;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
             // Button up. Primary button.
             event.type = "pointerup";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
         });
 
@@ -818,12 +1163,14 @@ describe("ArcRotateCameraInput", function () {
             event.clientY = 200;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Start moving.
             event.type = "pointermove";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Move X coordinate. Drag camera.
@@ -831,12 +1178,14 @@ describe("ArcRotateCameraInput", function () {
             event.clientX = 1000;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
             // Button up. Primary button.
             event.type = "pointerup";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // 2nd drag.
@@ -846,12 +1195,14 @@ describe("ArcRotateCameraInput", function () {
             event.clientY = 200;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Start moving.
             event.type = "pointermove";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Move Y coordinate. Drag camera.
@@ -859,12 +1210,14 @@ describe("ArcRotateCameraInput", function () {
             event.clientY = 1000;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
             // Button up. Primary button.
             event.type = "pointerup";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
         });
 
@@ -880,12 +1233,14 @@ describe("ArcRotateCameraInput", function () {
             event.clientY = 200;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Start moving.
             event.type = "pointermove";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Move Y coordinate. Drag camera. (Not panning yet.)
@@ -893,6 +1248,7 @@ describe("ArcRotateCameraInput", function () {
             event.clientY = 1000;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
             // Move X coordinate with Ctrl key depressed. Panning now.
@@ -901,6 +1257,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = 0;
             event.ctrlKey = true; // Will cause pan motion.
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialPanningY: ValChange.Increase })).to.be.true;
 
             // Move X coordinate having released Ctrl.
@@ -909,12 +1266,14 @@ describe("ArcRotateCameraInput", function () {
             event.button = 0;
             event.ctrlKey = false; // Will cancel pan motion.
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
             // Button up. Primary button.
             event.type = "pointerup";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
         });
 
@@ -929,12 +1288,14 @@ describe("ArcRotateCameraInput", function () {
             event.clientY = 200;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Start moving.
             event.type = "pointermove";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Move Y coordinate. Drag camera.
@@ -942,6 +1303,7 @@ describe("ArcRotateCameraInput", function () {
             event.clientY = 1000;
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
             // Move X coordinate with Ctrl key depressed.
@@ -951,6 +1313,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = 0;
             event.ctrlKey = true; // Will cause pan motion.
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
             // Move X coordinate having released Ctrl.
@@ -959,12 +1322,14 @@ describe("ArcRotateCameraInput", function () {
             event.button = 0;
             event.ctrlKey = false;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
             // Button up. Primary button.
             event.type = "pointerup";
             event.button = 0;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
         });
     });
@@ -989,12 +1354,14 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start moving before 2nd button has been pressed.
                 event.type = "pointermove";
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move X coordinate.
@@ -1004,6 +1371,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
                 // 2nd button down. (Enter zoom mode.)
@@ -1012,6 +1380,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start move of 2nd pointer.
                 event.type = "pointermove";
@@ -1020,6 +1389,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move Y coordinate. 2nd point is the one moving.
@@ -1029,6 +1399,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Increase })).to.be.true;
 
                 // Move X + Y coordinate. 1st point is the one moving.
@@ -1038,6 +1409,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Decrease })).to.be.true;
 
                 // One of the buttons button up. (Leave zoom mode.)
@@ -1046,6 +1418,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate of remaining pressed point.
                 event.type = "pointermove";
@@ -1054,6 +1427,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
                 // Other button button up. (Now moves should have no affect.)
@@ -1062,6 +1436,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate.
                 event.type = "pointermove";
@@ -1070,6 +1445,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
             });
 
@@ -1091,12 +1467,14 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start moving before 2nd button has been pressed.
                 event.type = "pointermove";
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move X coordinate.
@@ -1106,6 +1484,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
                 // 2nd button down. (Enter zoom mode.)
@@ -1114,6 +1493,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start move of 2nd pointer.
                 event.type = "pointermove";
@@ -1122,6 +1502,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move Y coordinate. 2nd point is the one moving.
@@ -1131,6 +1512,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Increase })).to.be.true;
 
                 // Move X + Y coordinate. 1st point is the one moving.
@@ -1140,6 +1522,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Decrease })).to.be.true;
 
                 // One of the buttons button up. (Leave zoom mode.)
@@ -1148,6 +1531,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate of remaining pressed point.
                 event.type = "pointermove";
@@ -1156,6 +1540,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
                 // Other button button up. (Now moves should have no affect.)
@@ -1164,6 +1549,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate.
                 event.type = "pointermove";
@@ -1172,6 +1558,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
             });
 
@@ -1193,12 +1580,14 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start moving before 2nd button has been pressed.
                 event.type = "pointermove";
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move X coordinate.
@@ -1208,6 +1597,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
                 // 2nd button down. (Enter zoom mode.)
@@ -1216,6 +1606,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start move of 2nd pointer.
                 event.type = "pointermove";
@@ -1224,6 +1615,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move Y coordinate. 2nd point is the one moving.
@@ -1233,6 +1625,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Increase, inertialPanningY: ValChange.Increase })).to.be.true;
 
                 // Move X + Y coordinate. 1st point is the one moving.
@@ -1242,6 +1635,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Decrease, inertialPanningX: ValChange.Decrease, inertialPanningY: ValChange.Increase })).to.be.true;
 
                 // One of the buttons button up. (Leave zoom mode.)
@@ -1250,6 +1644,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate of remaining pressed point.
                 event.type = "pointermove";
@@ -1258,6 +1653,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
                 // Other button button up. (Now moves should have no affect.)
@@ -1266,6 +1662,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate.
                 event.type = "pointermove";
@@ -1274,6 +1671,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
             });
         });
@@ -1297,12 +1695,14 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start moving before 2nd button has been pressed.
                 event.type = "pointermove";
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move X coordinate.
@@ -1312,6 +1712,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
                 // 2nd button down. (Enter zoom mode.)
@@ -1320,6 +1721,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start move of 2nd pointer.
                 event.type = "pointermove";
@@ -1328,6 +1730,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move Y coordinate. 2nd point is the one moving.
@@ -1337,6 +1740,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Increase })).to.be.true;
 
                 // Move X + Y coordinate. 1st point is the one moving.
@@ -1346,6 +1750,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Decrease })).to.be.true;
 
                 // One of the buttons button up. (Leave zoom mode.)
@@ -1354,6 +1759,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate of remaining pressed point.
                 event.type = "pointermove";
@@ -1362,6 +1768,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
                 // 1st button down again
@@ -1370,6 +1777,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start move of 1st button.
                 // This time trigger more than 20 pointermove events without moving more
@@ -1383,6 +1791,7 @@ describe("ArcRotateCameraInput", function () {
                 for (let i = 0; i < 21; i++) {
                     event.clientX++;
                     simulateEvent(this.cameraInput, event);
+                    simulateRender(this.cameraInput);
                 }
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialPanningX: ValChange.Decrease })).to.be.true;
 
@@ -1393,6 +1802,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialPanningX: ValChange.Decrease, inertialPanningY: ValChange.Increase })).to.be.true;
 
                 // One of the buttons button up. (Leave pan mode.)
@@ -1401,6 +1811,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Other button button up. (Now moves should have no affect.)
                 event.type = "pointerup";
@@ -1408,6 +1819,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate.
                 event.type = "pointermove";
@@ -1416,6 +1828,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
             });
 
@@ -1437,12 +1850,14 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start moving before 2nd button has been pressed.
                 event.type = "pointermove";
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move X coordinate.
@@ -1452,6 +1867,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
                 // 2nd button down. (Enter zoom mode.)
@@ -1460,6 +1876,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start move of 2nd pointer.
                 event.type = "pointermove";
@@ -1468,6 +1885,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
                 // Move Y coordinate. 2nd point is the one moving.
@@ -1477,6 +1895,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Increase })).to.be.true;
 
                 // Move X + Y coordinate. 1st point is the one moving.
@@ -1486,6 +1905,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Decrease })).to.be.true;
 
                 // One of the buttons button up. (Leave zoom mode.)
@@ -1494,6 +1914,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate of remaining pressed point.
                 event.type = "pointermove";
@@ -1502,6 +1923,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialBetaOffset: ValChange.Decrease })).to.be.true;
 
                 // 1st button down again
@@ -1510,6 +1932,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Start move of 1st button.
                 // This time trigger more than 20 pointermove events without moving more
@@ -1523,6 +1946,7 @@ describe("ArcRotateCameraInput", function () {
                 for (let i = 0; i < 21; i++) {
                     event.clientX++;
                     simulateEvent(this.cameraInput, event);
+                    simulateRender(this.cameraInput);
                 }
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialPanningX: ValChange.Decrease })).to.be.true;
 
@@ -1533,6 +1957,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, { inertialPanningX: ValChange.Decrease, inertialPanningY: ValChange.Increase })).to.be.true;
 
                 // One of the buttons button up. (Leave pan mode.)
@@ -1541,6 +1966,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 0;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Other button button up. (Now moves should have no affect.)
                 event.type = "pointerup";
@@ -1548,6 +1974,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = 1;
                 event.pointerId = 2;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
 
                 // Move X and Y coordinate.
                 event.type = "pointermove";
@@ -1556,6 +1983,7 @@ describe("ArcRotateCameraInput", function () {
                 event.button = -1;
                 event.pointerId = 1;
                 simulateEvent(this.cameraInput, event);
+                simulateRender(this.cameraInput);
                 expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
             });
         });
@@ -1580,12 +2008,14 @@ describe("ArcRotateCameraInput", function () {
             event.button = 0;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
 
             // Start moving before 2nd button has been pressed.
             event.type = "pointermove";
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Move X coordinate.
@@ -1595,6 +2025,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
             // Lost focus
@@ -1607,6 +2038,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
         });
 
@@ -1628,12 +2060,14 @@ describe("ArcRotateCameraInput", function () {
             event.button = 0;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
 
             // Start moving before 2nd button has been pressed.
             event.type = "pointermove";
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Move X coordinate.
@@ -1643,6 +2077,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialAlphaOffset: ValChange.Decrease })).to.be.true;
 
             // 2nd button down. (Enter zoom mode.)
@@ -1651,6 +2086,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = 1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
 
             // Start move of 2nd pointer.
             event.type = "pointermove";
@@ -1659,6 +2095,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = -1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
 
             // Move Y coordinate. 2nd point is the one moving.
@@ -1668,6 +2105,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = -1;
             event.pointerId = 2;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, { inertialRadiusOffset: ValChange.Increase })).to.be.true;
 
             // Lost focus
@@ -1680,6 +2118,7 @@ describe("ArcRotateCameraInput", function () {
             event.button = -1;
             event.pointerId = 1;
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
             expect(verifyChanges(this.camera, this.cameraCachePos, {})).to.be.true;
         });
     });
@@ -1702,6 +2141,7 @@ describe("ArcRotateCameraInput", function () {
             var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
             event.type = "POINTERDOUBLETAP";
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
 
             expect(this.camera.alpha).to.be.equal(20);
             expect(this.camera.beta).to.be.equal(20);
@@ -1724,6 +2164,7 @@ describe("ArcRotateCameraInput", function () {
             var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
             event.type = "POINTERDOUBLETAP";
             simulateEvent(this.cameraInput, event);
+            simulateRender(this.cameraInput);
 
             expect(this.camera.alpha).to.be.equal(10);
             expect(this.camera.beta).to.be.equal(10);
