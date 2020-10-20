@@ -127,9 +127,9 @@ function StubCameraInput() {
      * These stubs keep track of how many times they were called and
      */
     cameraInput.onTouch = (point: BABYLON.Nullable<BABYLON.PointerTouch>, offsetX: number, offsetY: number) => {
-          cameraInput.countOnTouch++;
-          cameraInput.lastOnTouch = {point, offsetX, offsetY};
-      };
+        cameraInput.countOnTouch++;
+        cameraInput.lastOnTouch = {point, offsetX, offsetY};
+    };
 
     cameraInput.onDoubleTap = (type: string) => {
         cameraInput.countOnDoubleTap++;
@@ -227,241 +227,418 @@ describe("BaseCameraPointersInput", function () {
         this.cameraInput.reset();
     });
 
-	describe('primatives', function() {
-		it('push pop ring buffer', function() {
-			expect(this.cameraInput._allEvents.length).to.equal(0);
+    describe('primatives', function() {
+        it('push pop ring buffer', function() {
+            expect(this.cameraInput._allEvents.length).to.equal(0);
 
-			this.cameraInput._allEvents.push();
-			this.cameraInput._allEvents.pushed.label = "newEntry1";
-			expect(this.cameraInput._allEvents.length).to.equal(1);
+            this.cameraInput._allEvents.push();
+            this.cameraInput._allEvents.pushed.label = "newEntry1";
+            expect(this.cameraInput._allEvents.length).to.equal(1);
 
-			let popedEntry1 = this.cameraInput._allEvents.pop();
-			expect(this.cameraInput._allEvents.pushed).to.equal(popedEntry1);
-			expect(this.cameraInput._allEvents.length).to.equal(0);
-		});
+            let popedEntry1 = this.cameraInput._allEvents.pop();
+            expect(this.cameraInput._allEvents.pushed).to.equal(popedEntry1);
+            expect(this.cameraInput._allEvents.length).to.equal(0);
+        });
 
-		it('multi push pop ring buffer', function() {
-			expect(this.cameraInput._allEvents.length).to.equal(0);
+        it('multi push pop ring buffer', function() {
+            expect(this.cameraInput._allEvents.length).to.equal(0);
 
-			this.cameraInput._allEvents.push();
-			this.cameraInput._allEvents.pushed.label = "newEntry1";
-			this.cameraInput._allEvents.push();
-			this.cameraInput._allEvents.pushed.label = "newEntry2";
-			this.cameraInput._allEvents.push();
-			this.cameraInput._allEvents.pushed.label = "newEntry3";
-			expect(this.cameraInput._allEvents.length).to.equal(3);
+            this.cameraInput._allEvents.push();
+            this.cameraInput._allEvents.pushed.label = "newEntry1";
+            this.cameraInput._allEvents.push();
+            this.cameraInput._allEvents.pushed.label = "newEntry2";
+            this.cameraInput._allEvents.push();
+            this.cameraInput._allEvents.pushed.label = "newEntry3";
+            expect(this.cameraInput._allEvents.length).to.equal(3);
 
-			let popedEntry1 = this.cameraInput._allEvents.pop();
-			expect(popedEntry1.label).to.equal("newEntry1");
-			let popedEntry2 = this.cameraInput._allEvents.pop();
-			expect(popedEntry2.label).to.equal("newEntry2");
-			let popedEntry3 = this.cameraInput._allEvents.pop();
-			expect(popedEntry3.label).to.equal("newEntry3");
-			let popedEntry4 = this.cameraInput._allEvents.pop();
-			expect(popedEntry4).to.equal(undefined);
-			expect(this.cameraInput._allEvents.length).to.equal(0);
-		});
+            let popedEntry1 = this.cameraInput._allEvents.pop();
+            expect(popedEntry1.label).to.equal("newEntry1");
+            let popedEntry2 = this.cameraInput._allEvents.pop();
+            expect(popedEntry2.label).to.equal("newEntry2");
+            let popedEntry3 = this.cameraInput._allEvents.pop();
+            expect(popedEntry3.label).to.equal("newEntry3");
+            let popedEntry4 = this.cameraInput._allEvents.pop();
+            expect(popedEntry4).to.equal(undefined);
+            expect(this.cameraInput._allEvents.length).to.equal(0);
+        });
 
-		it('recycle entries ring buffer', function() {
-			expect(this.cameraInput._allEvents.length).to.equal(0);
+        it('recycle entries ring buffer', function() {
+            expect(this.cameraInput._allEvents.length).to.equal(0);
 
-			// Force the internal container to have 3 elements.
-			this.cameraInput._allEvents.push();
-			this.cameraInput._allEvents.push();
-			this.cameraInput._allEvents.push();
-			expect(this.cameraInput._allEvents.length).to.equal(3);
-			// Now empty it out. The internal container remains.
-			let popedEntry1 = this.cameraInput._allEvents.pop();
-			let popedEntry2 = this.cameraInput._allEvents.pop();
-			let popedEntry3 = this.cameraInput._allEvents.pop();
-			expect(this.cameraInput._allEvents.length).to.equal(0);
+            // Force the internal container to have 3 elements.
+            this.cameraInput._allEvents.push();
+            this.cameraInput._allEvents.push();
+            this.cameraInput._allEvents.push();
+            expect(this.cameraInput._allEvents.length).to.equal(3);
+            // Now empty it out. The internal container remains.
+            let popedEntry1 = this.cameraInput._allEvents.pop();
+            let popedEntry2 = this.cameraInput._allEvents.pop();
+            let popedEntry3 = this.cameraInput._allEvents.pop();
+            expect(this.cameraInput._allEvents.length).to.equal(0);
 
-			// Now loop through in a manner that overlaps the ends of the internal
-			// container sometimes.
-			for(let i = 0; i < 20; i++) {
-				this.cameraInput._allEvents.push();
-				this.cameraInput._allEvents.pushed.label = "newEntry1";
-				this.cameraInput._allEvents.push();
-				this.cameraInput._allEvents.pushed.label = "newEntry2";
-				expect(this.cameraInput._allEvents.length).to.equal(2);
+            // Now loop through in a manner that overlaps the ends of the internal
+            // container sometimes.
+            for(let i = 0; i < 20; i++) {
+                this.cameraInput._allEvents.push();
+                this.cameraInput._allEvents.pushed.label = "newEntry1";
+                this.cameraInput._allEvents.push();
+                this.cameraInput._allEvents.pushed.label = "newEntry2";
+                expect(this.cameraInput._allEvents.length).to.equal(2);
 
-				let popedEntry1 = this.cameraInput._allEvents.pop();
-				expect(popedEntry1.label).to.equal("newEntry1");
-				let popedEntry2 = this.cameraInput._allEvents.pop();
-				expect(popedEntry2.label).to.equal("newEntry2");
-				expect(this.cameraInput._allEvents.length).to.equal(0);
+                let popedEntry1 = this.cameraInput._allEvents.pop();
+                expect(popedEntry1.label).to.equal("newEntry1");
+                let popedEntry2 = this.cameraInput._allEvents.pop();
+                expect(popedEntry2.label).to.equal("newEntry2");
+                expect(this.cameraInput._allEvents.length).to.equal(0);
 
-				this.cameraInput._allEvents.push();
-				this.cameraInput._allEvents.pushed.label = "newEntry3";
-				this.cameraInput._allEvents.push();
-				this.cameraInput._allEvents.pushed.label = "newEntry4";
-				this.cameraInput._allEvents.push();
-				this.cameraInput._allEvents.pushed.label = "newEntry5";
-				expect(this.cameraInput._allEvents.length).to.equal(3);
+                this.cameraInput._allEvents.push();
+                this.cameraInput._allEvents.pushed.label = "newEntry3";
+                this.cameraInput._allEvents.push();
+                this.cameraInput._allEvents.pushed.label = "newEntry4";
+                this.cameraInput._allEvents.push();
+                this.cameraInput._allEvents.pushed.label = "newEntry5";
+                expect(this.cameraInput._allEvents.length).to.equal(3);
 
-				let popedEntry3 = this.cameraInput._allEvents.pop();
-				expect(popedEntry3.label).to.equal("newEntry3");
-				let popedEntry4 = this.cameraInput._allEvents.pop();
-				expect(popedEntry4.label).to.equal("newEntry4");
-				let popedEntry5 = this.cameraInput._allEvents.pop();
-				expect(popedEntry5.label).to.equal("newEntry5");
-				expect(this.cameraInput._allEvents.length).to.equal(0);
-			}
-		});
+                let popedEntry3 = this.cameraInput._allEvents.pop();
+                expect(popedEntry3.label).to.equal("newEntry3");
+                let popedEntry4 = this.cameraInput._allEvents.pop();
+                expect(popedEntry4.label).to.equal("newEntry4");
+                let popedEntry5 = this.cameraInput._allEvents.pop();
+                expect(popedEntry5.label).to.equal("newEntry5");
+                expect(this.cameraInput._allEvents.length).to.equal(0);
+            }
+        });
 
-		it('overflow ring buffer', function() {
-			let maxSize = this.cameraInput._allEvents._maxSize;
-			expect(this.cameraInput._allEvents.length).to.equal(0);
+        it('overflow ring buffer', function() {
+            let maxSize = this.cameraInput._allEvents._maxSize;
+            expect(this.cameraInput._allEvents.length).to.equal(0);
 
-			// Fill the buffer.
-			for(let i = 0; i < maxSize; i++) {
-				this.cameraInput._allEvents.push();
-				this.cameraInput._allEvents.pushed.label = `newEntry_${i}`;
-				expect(this.cameraInput._allEvents.length).to.equal(i + 1);
-			}
+            // Fill the buffer.
+            for(let i = 0; i < maxSize; i++) {
+                this.cameraInput._allEvents.push();
+                this.cameraInput._allEvents.pushed.label = `newEntry_${i}`;
+                expect(this.cameraInput._allEvents.length).to.equal(i + 1);
+            }
 
-			// Keep going event though we have exceeded the maximum buffer size.
-			for(let i = 0; i < maxSize * 2; i++) {
-				this.cameraInput._allEvents.push();
-				this.cameraInput._allEvents.pushed.label = `overflow_${i}`;
-				expect(this.cameraInput._allEvents.length).to.equal(maxSize);
-			}
+            // Keep going event though we have exceeded the maximum buffer size.
+            for(let i = 0; i < maxSize * 2; i++) {
+                this.cameraInput._allEvents.push();
+                this.cameraInput._allEvents.pushed.label = `overflow_${i}`;
+                expect(this.cameraInput._allEvents.length).to.equal(maxSize);
+            }
 
-			// The data in the buffer is the newer set; Oldest data has been
-			// overwritten.
-			for(let i = maxSize; i < maxSize * 2; i++) {
-				let entry = this.cameraInput._allEvents.pop();
-				expect(entry.label).to.equal(`overflow_${i}`);
-			}
+            // The data in the buffer is the newer set; Oldest data has been
+            // overwritten.
+            for(let i = maxSize; i < maxSize * 2; i++) {
+                let entry = this.cameraInput._allEvents.pop();
+                expect(entry.label).to.equal(`overflow_${i}`);
+            }
 
-			// Completely empty now.
-			expect(this.cameraInput._allEvents.length).to.equal(0);
-			let entry = this.cameraInput._allEvents.pop();
-			expect(entry).to.equal(undefined);
-		});
-	});
+            // Completely empty now.
+            expect(this.cameraInput._allEvents.length).to.equal(0);
+            let entry = this.cameraInput._allEvents.pop();
+            expect(entry).to.equal(undefined);
+        });
+    });
 
-	describe('queued event manager', function() {
-		it('queues events until a checkInputs() call', function() {
-			var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
+    describe('queued event manager', function() {
+        it('queues events until a checkInputs() call', function() {
+            // Only do this test if this.cameraInput._defferCallback === true.
+            if (this.cameraInput._defferCallback) {
+                var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
 
-			// Button down.
-			event.type = "pointerdown";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                // Button down.
+                event.type = "pointerdown";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			// Start moving.
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                // Start moving.
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			// Another button down.
-			event.type = "pointerdown";
-			event.button = 1;
-			simulateEvent(this.cameraInput, event);
+                // Another button down.
+                event.type = "pointerdown";
+                event.button = 1;
+                simulateEvent(this.cameraInput, event);
 
-			// Button up.
-			event.type = "pointerup";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                // Button up.
+                event.type = "pointerup";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			// No render call so no callbacks have been called.
-			expect(this.cameraInput.countOnTouch).to.equal(0);
-			expect(this.cameraInput.countOnMultiTouch).to.equal(0);
-			expect(this.cameraInput.countOnButtonDown).to.equal(0);
-			expect(this.cameraInput.countOnButtonUp).to.equal(0);
+                // No render call so no callbacks have been called.
+                expect(this.cameraInput.countOnTouch).to.equal(0);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(0);
+                expect(this.cameraInput.countOnButtonUp).to.equal(0);
 
-			// Call checkInputs().
-			simulateRender(this.cameraInput);
-			// Now callbacks have been called.
-			expect(this.cameraInput.countOnTouch).to.equal(1);
-			expect(this.cameraInput.countOnMultiTouch).to.equal(0);
-			expect(this.cameraInput.countOnButtonDown).to.equal(2);
-			expect(this.cameraInput.countOnButtonUp).to.equal(1);
-		});
+                // Call checkInputs().
+                simulateRender(this.cameraInput);
+                // Now callbacks have been called.
+                expect(this.cameraInput.countOnTouch).to.equal(1);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(2);
+                expect(this.cameraInput.countOnButtonUp).to.equal(1);
+            }
+        });
 
-		it('queues and coalesces events until a checkInputs() call', function() {
-			var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
+        it('queues and coalesces events until a checkInputs() call', function() {
+            // Only do this test if this.cameraInput._defferCallback === true.
+            if (this.cameraInput._defferCallback) {
+                var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
 
-			// Button down.
-			event.type = "pointerdown";
-			event.button = 0;
-			event.pointerId = 1;
-			event.pointerType = "touch";
-			simulateEvent(this.cameraInput, event);
+                // Button down.
+                event.type = "pointerdown";
+                event.button = 0;
+                event.pointerId = 1;
+                event.pointerType = "touch";
+                simulateEvent(this.cameraInput, event);
 
-			// First Touch event
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                // First Touch event
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			// Another button down.
-			event.type = "pointerdown";
-			event.button = 1;
-			event.pointerId = 2;
-			event.pointerType = "touch";
-			simulateEvent(this.cameraInput, event);
+                // Another button down.
+                event.type = "pointerdown";
+                event.button = 1;
+                event.pointerId = 2;
+                event.pointerType = "touch";
+                simulateEvent(this.cameraInput, event);
 
-			// MultiTouch event.
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                // MultiTouch event.
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			// Button up.
-			event.type = "pointerup";
-			event.button = 1;
-			event.pointerId = 2;
-			event.pointerType = "touch";
-			simulateEvent(this.cameraInput, event);
+                // Button up.
+                event.type = "pointerup";
+                event.button = 1;
+                event.pointerId = 2;
+                event.pointerType = "touch";
+                simulateEvent(this.cameraInput, event);
 
-			// Second Touch event.
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                // Second Touch event.
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			event.type = "pointermove";
-			event.button = 0;
-			simulateEvent(this.cameraInput, event);
+                event.type = "pointermove";
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
 
-			// No render call so no callbacks have been called.
-			expect(this.cameraInput.countOnTouch).to.equal(0);
-			expect(this.cameraInput.countOnMultiTouch).to.equal(0);
-			expect(this.cameraInput.countOnButtonDown).to.equal(0);
-			expect(this.cameraInput.countOnButtonUp).to.equal(0);
+                // No render call so no callbacks have been called.
+                expect(this.cameraInput.countOnTouch).to.equal(0);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(0);
+                expect(this.cameraInput.countOnButtonUp).to.equal(0);
 
-			// Call checkInputs().
-			simulateRender(this.cameraInput);
+                // Call checkInputs().
+                simulateRender(this.cameraInput);
 
-			// Now callbacks have been called.
+                // Now callbacks have been called.
 
-			// "touch" events in between button presses have been combined.
-			expect(this.cameraInput.countOnTouch).to.equal(2);
+                // "touch" events in between button presses have been combined.
+                expect(this.cameraInput.countOnTouch).to.equal(2);
 
-			expect(this.cameraInput.countOnMultiTouch).to.equal(1);
-			expect(this.cameraInput.countOnButtonDown).to.equal(2);
-			expect(this.cameraInput.countOnButtonUp).to.equal(1);
-		});
-	});
+                expect(this.cameraInput.countOnMultiTouch).to.equal(1);
+                expect(this.cameraInput.countOnButtonDown).to.equal(2);
+                expect(this.cameraInput.countOnButtonUp).to.equal(1);
+            }
+        });
+
+        it('queues events verifying drag movement.', function() {
+            // Only do this test if this.cameraInput._defferCallback === true.
+            if (this.cameraInput._defferCallback) {
+                var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
+
+                // Button down.
+                event.type = "pointerdown";
+                event.clientX = 100;
+                event.clientY = 200;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+
+                // Start moving.
+                event.type = "pointermove";
+                event.clientX = 101;
+                event.clientY = 200;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+
+                event.type = "pointermove";
+                event.clientX = 102;
+                event.clientY = 200;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+
+                event.type = "pointermove";
+                event.clientX = 102;
+                event.clientY = 199;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+
+                event.type = "pointermove";
+                event.clientX = 102;
+                event.clientY = 198;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+
+                // Button up.
+                event.type = "pointerup";
+                event.clientX = 103;
+                event.clientY = 198;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+
+                // No render call so no callbacks have been called.
+                expect(this.cameraInput.countOnTouch).to.equal(0);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(0);
+                expect(this.cameraInput.countOnButtonUp).to.equal(0);
+
+                // Call checkInputs().
+                simulateRender(this.cameraInput);
+                // Now callbacks have been called.
+                expect(this.cameraInput.countOnTouch).to.equal(1);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(1);
+                expect(this.cameraInput.countOnButtonUp).to.equal(1);
+
+                expect(this.cameraInput.lastOnTouch.offsetX).to.equal(2);
+                expect(this.cameraInput.lastOnTouch.offsetY).to.equal(-2);
+            }
+        });
+
+        it('compares "onTouch()" deffered camera to immediate camera.', function() {
+            // Only do this test if this.cameraInput._defferCallback === true.
+            if (this.cameraInput._defferCallback) {
+
+                // Set up a 2nd Camera with the ArcRotateCameraPointersInput.
+                // This camera input dispatches event callbacks immediately.
+                const camera2 = new BABYLON.ArcRotateCamera("StubCamera2", 0, 0, 0, new BABYLON.Vector3(0, 0, 0), this._scene);
+                const cameraInput2 = StubCameraInput();
+                cameraInput2.camera = camera2;
+                cameraInput2.attachControl();
+                cameraInput2._defferCallback = false;
+
+                let offsetXTotal = 0;
+                let offsetYTotal = 0;
+                function totalNonDeferredCamera() {
+                    if(cameraInput2.lastOnTouch !== undefined) {
+                        offsetXTotal += cameraInput2.lastOnTouch.offsetX;
+                        offsetYTotal += cameraInput2.lastOnTouch.offsetY;
+                    }
+                    cameraInput2.lastOnTouch = undefined;
+                }
+
+                var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
+
+                // Button down.
+                event.type = "pointerdown";
+                event.clientX = 100;
+                event.clientY = 200;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // Start moving.
+                event.type = "pointermove";
+                event.clientX = 101;
+                event.clientY = 200;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                event.type = "pointermove";
+                event.clientX = 102;
+                event.clientY = 200;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                event.type = "pointermove";
+                event.clientX = 102;
+                event.clientY = 199;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                event.type = "pointermove";
+                event.clientX = 102;
+                event.clientY = 198;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // Button up.
+                event.type = "pointerup";
+                event.clientX = 103;
+                event.clientY = 198;
+                event.button = 0;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // No render call so no callbacks have been called for deferred
+                // camera.
+                expect(this.cameraInput.countOnTouch).to.equal(0);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(0);
+                expect(this.cameraInput.countOnButtonUp).to.equal(0);
+                // All callbacks called for non-deferred camera.
+                expect(cameraInput2.countOnTouch).to.equal(4);
+                expect(cameraInput2.countOnMultiTouch).to.equal(0);
+                expect(cameraInput2.countOnButtonDown).to.equal(1);
+                expect(cameraInput2.countOnButtonUp).to.equal(1);
+
+                // Call checkInputs().
+                simulateRender(this.cameraInput);
+                // Now callbacks have been called on deferred camera.
+                expect(this.cameraInput.countOnTouch).to.equal(1);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(1);
+                expect(this.cameraInput.countOnButtonUp).to.equal(1);
+
+                // Both cameras should have moved the same amount.
+                expect(this.cameraInput.lastOnTouch.offsetX).to.equal(offsetXTotal);
+                expect(this.cameraInput.lastOnTouch.offsetY).to.equal(offsetYTotal);
+            }
+        });
+
+        it('compares "onMultiTouch()" deffered camera to immediate camera.', function() {
+            // Only do this test if this.cameraInput._defferCallback === true.
+            if (this.cameraInput._defferCallback) {
+                // TODO.
+            }
+        });
+    });
 
     describe("one button drag", function () {
         it('calls "onTouch" method', function () {
@@ -816,7 +993,7 @@ describe("BaseCameraPointersInput", function () {
             simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-			expect(this.cameraInput.pointersDown).to.be.have.length(1);
+            expect(this.cameraInput.pointersDown).to.be.have.length(1);
 
             // 2nd button down.
             event.type = "pointerdown";
@@ -827,7 +1004,7 @@ describe("BaseCameraPointersInput", function () {
             simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-			expect(this.cameraInput.pointersDown).to.be.have.length(2);
+            expect(this.cameraInput.pointersDown).to.be.have.length(2);
 
             // One button up.
             event.type = "pointerup";
@@ -838,7 +1015,7 @@ describe("BaseCameraPointersInput", function () {
             simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
-			expect(this.cameraInput.pointersDown).to.be.have.length(1);
+            expect(this.cameraInput.pointersDown).to.be.have.length(1);
 
             // Other button up.
             event.type = "pointerup";
@@ -849,7 +1026,7 @@ describe("BaseCameraPointersInput", function () {
             simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(2);
-			expect(this.cameraInput.pointersDown).to.be.have.length(0);
+            expect(this.cameraInput.pointersDown).to.be.have.length(0);
 
             // These callbacks were never called.
             expect(this.cameraInput.countOnTouch).to.equal(0);
@@ -871,7 +1048,7 @@ describe("BaseCameraPointersInput", function () {
             simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(1);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-			expect(this.cameraInput.pointersDown).to.be.have.length(1);
+            expect(this.cameraInput.pointersDown).to.be.have.length(1);
 
             // 2nd button down.
             event.type = "pointerdown";
@@ -882,7 +1059,7 @@ describe("BaseCameraPointersInput", function () {
             simulateRender(this.cameraInput);
             expect(this.cameraInput.countOnButtonDown).to.equal(2);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-			expect(this.cameraInput.pointersDown).to.be.have.length(2);
+            expect(this.cameraInput.pointersDown).to.be.have.length(2);
 
             // 3rd button down.
             event.type = "pointerdown";
@@ -895,7 +1072,7 @@ describe("BaseCameraPointersInput", function () {
             // onButtonDown() gets called but nothing else changes.
             expect(this.cameraInput.countOnButtonDown).to.equal(3);
             expect(this.cameraInput.countOnButtonUp).to.equal(0);
-			expect(this.cameraInput.pointersDown).to.be.have.length(2);
+            expect(this.cameraInput.pointersDown).to.be.have.length(2);
 
             // One button up.
             event.type = "pointerup";
@@ -907,7 +1084,7 @@ describe("BaseCameraPointersInput", function () {
             expect(this.cameraInput.countOnButtonDown).to.equal(3);
             expect(this.cameraInput.countOnButtonUp).to.equal(1);
             // Button state gets cleared. No buttons registered as being down.
-			expect(this.cameraInput.pointersDown).to.be.have.length(0);
+            expect(this.cameraInput.pointersDown).to.be.have.length(0);
 
             // These callbacks were never called.
             expect(this.cameraInput.countOnTouch).to.equal(0);
@@ -935,54 +1112,6 @@ describe("ArcRotateCameraInput", function () {
         Decrease,
         DontCare,
     }
-
-    const interestingValues = [
-        "inertialPanningX",
-        "inertialPanningY",
-        "inertialAlphaOffset",
-        "inertialBetaOffset",
-        "inertialRadiusOffset",
-    ];
-
-    function resetCameraPos(camera: BABYLON.ArcRotateCamera, cameraCachePos: {}) {
-        camera.alpha = 10;
-        camera.beta = 20;
-        camera.radius = 30;
-        camera.inertialPanningX = 0;
-        camera.inertialPanningY = 0;
-        camera.inertialAlphaOffset = 0;
-        camera.inertialBetaOffset = 0;
-        camera.inertialRadiusOffset = 0;
-        camera._panningMouseButton = 2;
-        camera.useInputToRestoreState = true;
-        camera._useCtrlForPanning = true;
-
-        interestingValues.forEach((key) => {
-            cameraCachePos[key] = camera[key];
-        });
-    }
-
-    function verifyChanges(
-        camera: BABYLON.ArcRotateCamera,
-        cameraCachePos: {},
-        toCheck: {[key: string]: ValChange}): boolean {
-            let result = true;
-            interestingValues.forEach((key) => {
-                if (toCheck[key] === undefined) {
-                    toCheck[key] = ValChange.Same;
-                }
-                let r = (
-                    toCheck[key] === ValChange.DontCare ||
-                    (toCheck[key] === ValChange.Decrease && camera[key] < cameraCachePos[key]) ||
-                    (toCheck[key] === ValChange.Same && camera[key] === cameraCachePos[key]) ||
-                    (toCheck[key] === ValChange.Increase && camera[key] > cameraCachePos[key])
-                );
-                if (!r) {
-                    console.log(
-                        `Incorrect value for ${key}, previous: ${cameraCachePos[key]}, current: ${camera[key]}`
-                    );
-                }
-                result = result && r;
 
     const interestingValues = ["inertialPanningX", "inertialPanningY", "inertialAlphaOffset", "inertialBetaOffset", "inertialRadiusOffset"];
 

@@ -8,6 +8,7 @@ import { PointerInfo, PointerEventTypes, PointerTouch } from "../../Events/point
 
 const DEBUG = false;
 const COALESCE = true;
+const DEFFER_CALLBACK = true;
 
 /**
  * Base class for Camera Pointer Inputs.
@@ -333,14 +334,14 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
         //
         // The code below replays the events in the order they were stored.
 
-        if(this._allEvents.length > 0 && DEBUG) {
+        if (this._allEvents.length > 0 && DEBUG) {
             this._allEvents.dump();
         }
         while (this._allEvents.length > 0) {
             // Get per-event buffer that was populated earliest.
             const eventBuffer = this._allEvents.pop();
             console.assert(eventBuffer !== undefined, "Invalid event.");
-            if(eventBuffer === undefined ) {
+            if (eventBuffer === undefined) {
                 continue;
             }
             if (DEBUG) {
@@ -354,7 +355,6 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
             if (event === undefined) {
                 continue;
             }
-
             if (eventBuffer.buffer === this._eventsButtonDown) {
                 const typedEvent = <ICameraInputButtonDownEvent>event;
                 this.onButtonDown(typedEvent.event);
@@ -376,6 +376,12 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                 this.onTouchObservable.notifyObservers(typedEvent);
             } else if (eventBuffer.buffer === this._eventsMultiTouch) {
                 const typedEvent = <ICameraInputMultiTouchEvent>event;
+                console.log("******************",
+                    typedEvent.previousPinchSquaredDistance,
+                    typedEvent.pinchSquaredDistance,
+                    typedEvent.previousMultiTouchPanPosition,
+                    typedEvent.multiTouchPanPosition);
+
                 this.onMultiTouch(
                     typedEvent.pointA,
                     typedEvent.pointB,
@@ -489,6 +495,15 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
     }
 
     private _addEventsButtonDown(event: PointerEvent): void {
+        if (! this._defferCallback) {
+            this.onButtonDown(event);
+            return;
+        }
+
+        // Reset some things for onMultiTouch().
+        this._previousPinchSquaredDistanceCoalesced = 0;
+        this._previousMultiTouchPanPositionCoalesced = null;
+
         // Push event to _eventsButtonDown queue.
         this._eventsButtonDown.push();
         this._eventsButtonDown.pushed.event = event;
@@ -503,6 +518,11 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
     }
 
     private _addEventsButtonUp(event: PointerEvent): void {
+        if (! this._defferCallback) {
+            this.onButtonUp(event);
+            return;
+        }
+
         // Push event to _eventsButtonUp queue.
         this._eventsButtonUp.push();
         this._eventsButtonUp.pushed.event = event;
@@ -517,6 +537,11 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
     }
 
     private _addEventsDoubleTap(eventType: string): void {
+        if (! this._defferCallback) {
+            this.onDoubleTap(eventType);
+            return;
+        }
+
         // Push event to _eventsDoubleTap queue.
         this._eventsDoubleTap.push();
         this._eventsDoubleTap.pushed.type = eventType;
@@ -532,16 +557,21 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
 
     private _addEventsTouch(
         point: Nullable<PointerTouch>, offsetX: number, offsetY: number): void {
-            if(COALESCE &&
+            if (! this._defferCallback) {
+                this.onTouch(point, offsetX, offsetY);
+                return;
+            }
+
+            if (COALESCE &&
                     this._allEvents.length > 0 &&
                     this._allEvents.pushed.buffer === this._eventsTouch) {
                 // Same event type as last frame;
                 // Update the last pushed event in the buffer.
                 this._eventsTouch.pushed.point = point;
-                this._eventsTouch.pushed.offsetX = offsetX;
-                this._eventsTouch.pushed.offsetY = offsetY;
+                this._eventsTouch.pushed.offsetX += offsetX;
+                this._eventsTouch.pushed.offsetY += offsetY;
                 return;
-            } 
+            }
 
             // Push event to _eventsTouch queue.
             this._eventsTouch.push();
@@ -567,23 +597,31 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
         pinchSquaredDistance: number,
         previousMultiTouchPanPosition: Nullable<PointerTouch>,
         multiTouchPanPosition: Nullable<PointerTouch>): void {
-            if(COALESCE &&
+            if (! this._defferCallback) {
+                this.onMultiTouch(pointA,
+                                  pointB,
+                                  previousPinchSquaredDistance,
+                                  pinchSquaredDistance,
+                                  previousMultiTouchPanPosition,
+                                  multiTouchPanPosition);
+                return;
+            }
+
+            if (COALESCE &&
                     this._allEvents.length > 0 &&
                     this._allEvents.pushed.buffer === this._eventsMultiTouch) {
                 // Same event type as last frame;
                 // Update the last pushed event in the buffer.
                 this._eventsMultiTouch.pushed.pointA = pointA;
                 this._eventsMultiTouch.pushed.pointB = pointB;
-                this._eventsMultiTouch.pushed.previousPinchSquaredDistance =
-                    previousPinchSquaredDistance;
-                this._eventsMultiTouch.pushed.pinchSquaredDistance =
+                this._eventsMultiTouch.pushed.pinchSquaredDistance +=
                     pinchSquaredDistance;
-                this._eventsMultiTouch.pushed.previousMultiTouchPanPosition =
-                    previousMultiTouchPanPosition;
                 this._eventsMultiTouch.pushed.multiTouchPanPosition =
                     multiTouchPanPosition;
+
+                this._previousPinchSquaredDistanceCoalesced += pinchSquaredDistance || 0;
                 return;
-            } 
+            }
             // Push event to _eventsMultiTouch queue.
             this._eventsMultiTouch.push();
 
@@ -591,13 +629,16 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
             this._eventsMultiTouch.pushed.pointA = pointA;
             this._eventsMultiTouch.pushed.pointB = pointB;
             this._eventsMultiTouch.pushed.previousPinchSquaredDistance =
-                previousPinchSquaredDistance;
+                this._previousPinchSquaredDistanceCoalesced;
             this._eventsMultiTouch.pushed.pinchSquaredDistance =
                 pinchSquaredDistance;
             this._eventsMultiTouch.pushed.previousMultiTouchPanPosition =
-                previousMultiTouchPanPosition;
+                this._previousMultiTouchPanPositionCoalesced;
             this._eventsMultiTouch.pushed.multiTouchPanPosition =
                 multiTouchPanPosition;
+
+            this._previousPinchSquaredDistanceCoalesced = pinchSquaredDistance || 0;
+            this._previousMultiTouchPanPositionCoalesced = multiTouchPanPosition;
 
             // Push _eventsMultiTouch queue to _allEvents queue so we know what
             // order to unwrap individual queues in.
@@ -621,11 +662,14 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
     private _eventsMultiTouch =
         new _EventRingBuffer<ICameraInputMultiTouchEvent>("MultiTouch");
 
+    private _defferCallback: boolean = DEFFER_CALLBACK;
     private _pointerInput: (p: PointerInfo, s: EventState) => void;
     private _observer: Nullable<Observer<PointerInfo>>;
     private _onLostFocus: Nullable<(e: FocusEvent) => any>;
     private _pointA: Nullable<PointerTouch>;
     private _pointB: Nullable<PointerTouch>;
+    private _previousPinchSquaredDistanceCoalesced: number = 0;
+    private _previousMultiTouchPanPositionCoalesced: Nullable<PointerTouch> = null;
 }
 
 /**
@@ -641,7 +685,7 @@ class _EventRingBuffer<T> {
     private _length: number = 0;
     private _container: T[] = [];
     public pushed: T;
-    
+
     // Not strictly necessary but greatly aids debugging.
     public label: string = "";
 
@@ -661,7 +705,7 @@ class _EventRingBuffer<T> {
      * avoid GC here; It would be nicer to pass in a data object as a parameter.
      */
     public push(): void {
-        if(this._length >= this._maxSize) {
+        if (this._length >= this._maxSize) {
             // Max size exceeded. Start dropping oldest data.
             this.pop();
         }
@@ -736,116 +780,103 @@ class _EventRingBuffer<T> {
     }
 }
 
-// TODO Remove me and write unit tests for this.
-// Pat particular attention to the rollover between end of array and start.
-/*function testRingBuffer() {
-    const rb = new _EventRingBuffer<number>("test");
-    rb.dump();
-    console.assert(rb.length === 0);
-
-    rb.push(0);
-    rb.dump();
-    console.assert(rb.length === 1);
-    console.log(rb.pop());
-    rb.dump();
-    console.assert(rb.length === 0);
-
-    rb.push(1);
-    rb.dump();
-
-    rb.push(2);
-    rb.dump();
-
-    rb.push(3);
-    rb.dump();
-
-    rb.push(4);
-    rb.dump();
-
-    console.assert(rb.length === 4);
-    console.log(rb.pop(), rb.pop());
-    console.assert(rb.length === 2);
-    rb.dump();
-
-    rb.push(5);
-    rb.dump();
-
-    rb.push(6);
-    rb.dump();
-
-    rb.push(7);
-    rb.dump();
-
-    rb.push(8);
-    rb.dump();
-    console.assert(rb.length === 6);
-
-    let a = undefined;
-    do {
-        a = rb.pop();
-        console.log(a);
-    } while (a !== undefined);
-    rb.dump();
-
-    rb.push(1);
-    rb.dump();
-
-    rb.push(2);
-    rb.dump();
-
-    rb.push(3);
-    rb.dump();
-
-    rb.push(4);
-    rb.dump();
-
-    rb.push(5);
-    rb.dump();
-
-    rb.push(6);
-    rb.dump();
-
-    rb.push(7);
-    rb.dump();
-
-    rb.push(8);
-    rb.dump();
-}
-testRingBuffer();*/
-
+/**
+ * A reference to one of the ring buffers containing a particular event type.
+ */
 interface IEvent {
+    /**
+     * The ring buffer.
+     */
     buffer: (
         _EventRingBuffer<ICameraInputButtonDownEvent> |
         _EventRingBuffer<ICameraInputButtonUpEvent> |
         _EventRingBuffer<ICameraInputDoubleTapEvent> |
         _EventRingBuffer<ICameraInputTouchEvent> |
         _EventRingBuffer<ICameraInputMultiTouchEvent>);
+    /**
+     * A label for debug purposes.
+     */
     label: string;
 }
 
+/**
+ * Event triggered when pointer button depressed.
+ */
 interface ICameraInputButtonDownEvent {
+    /**
+     * The DOM pointer event.
+     */
     event: PointerEvent;
 }
 
+/**
+ * Event triggered when pointer button released.
+ */
 interface ICameraInputButtonUpEvent {
+    /**
+     * The DOM pointer event.
+     */
     event: PointerEvent;
 }
 
+/**
+ * Event triggered when 2 pointer buttons tapped.
+ */
 interface ICameraInputDoubleTapEvent {
+    /**
+     * A string matching the PointerEvent.pointerType.
+     */
     type: string;
 }
 
+/**
+ * Event triggered when pointer dragged.
+ */
 interface ICameraInputTouchEvent {
+    /**
+     * The DOM pointer event.
+     */
     point: Nullable<PointerTouch>;
+    /**
+     * Distance moved in X axis.
+     */
     offsetX: number;
+    /**
+     * Distance moved in Y axis.
+     */
     offsetY: number;
 }
 
+/**
+ * Event triggered when pointer dragged with 2 buttons.
+ */
 interface ICameraInputMultiTouchEvent {
+    /**
+     * The DOM pointer event of first button press.
+     */
     pointA: Nullable<PointerTouch>;
+    /**
+     * The DOM pointer event of second button press.
+     */
     pointB: Nullable<PointerTouch>;
+    /**
+     * Pinch distance (squared) last time this event was called.
+     * Will be 0 if this is the first in a drag sequence.
+     */
     previousPinchSquaredDistance: number;
+    /**
+     * Pinch distance (squared) since last time this event was called.
+     * Will be 0 if this is the last in a drag sequence.
+     */
     pinchSquaredDistance: number;
+    /**
+     * Average position of button presses last time this event was called.
+     * Will be 0 if this is the first in a drag sequence.
+     */
     previousMultiTouchPanPosition: Nullable<PointerTouch>;
+    /**
+     * Average position of button presses this frame.
+     * Will be 0 if this is the last in a drag sequence.
+     */
     multiTouchPanPosition: Nullable<PointerTouch>;
 }
