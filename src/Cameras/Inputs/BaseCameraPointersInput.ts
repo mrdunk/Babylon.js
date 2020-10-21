@@ -209,6 +209,7 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                     var distX = this._pointA.x - this._pointB.x;
                     var distY = this._pointA.y - this._pointB.y;
                     var pinchSquaredDistance = (distX * distX) + (distY * distY);
+                    pinchSquaredDistance |= 0;  // Filter NaN.
                     var multiTouchPanPosition = {x: (this._pointA.x + this._pointB.x) / 2,
                                                  y: (this._pointA.y + this._pointB.y) / 2,
                                                  pointerId: evt.pointerId,
@@ -376,11 +377,6 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                 this.onTouchObservable.notifyObservers(typedEvent);
             } else if (eventBuffer.buffer === this._eventsMultiTouch) {
                 const typedEvent = <ICameraInputMultiTouchEvent>event;
-                console.log("******************",
-                    typedEvent.previousPinchSquaredDistance,
-                    typedEvent.pinchSquaredDistance,
-                    typedEvent.previousMultiTouchPanPosition,
-                    typedEvent.multiTouchPanPosition);
 
                 this.onMultiTouch(
                     typedEvent.pointA,
@@ -389,6 +385,12 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                     typedEvent.pinchSquaredDistance,
                     typedEvent.previousMultiTouchPanPosition,
                     typedEvent.multiTouchPanPosition);
+
+                this._previousPinchSquaredDistance =
+                    typedEvent.pinchSquaredDistance;
+                this._previousMultiTouchPanPosition =
+                    typedEvent.multiTouchPanPosition;
+
                 this.onMultiTouchObservable.notifyObservers(typedEvent);
             }
         }
@@ -499,10 +501,6 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
             this.onButtonDown(event);
             return;
         }
-
-        // Reset some things for onMultiTouch().
-        this._previousPinchSquaredDistanceCoalesced = 0;
-        this._previousMultiTouchPanPositionCoalesced = null;
 
         // Push event to _eventsButtonDown queue.
         this._eventsButtonDown.push();
@@ -619,7 +617,6 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
                 this._eventsMultiTouch.pushed.multiTouchPanPosition =
                     multiTouchPanPosition;
 
-                this._previousPinchSquaredDistanceCoalesced += pinchSquaredDistance || 0;
                 return;
             }
             // Push event to _eventsMultiTouch queue.
@@ -629,16 +626,13 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
             this._eventsMultiTouch.pushed.pointA = pointA;
             this._eventsMultiTouch.pushed.pointB = pointB;
             this._eventsMultiTouch.pushed.previousPinchSquaredDistance =
-                this._previousPinchSquaredDistanceCoalesced;
+                this._previousPinchSquaredDistance;
             this._eventsMultiTouch.pushed.pinchSquaredDistance =
                 pinchSquaredDistance;
             this._eventsMultiTouch.pushed.previousMultiTouchPanPosition =
-                this._previousMultiTouchPanPositionCoalesced;
+                this._previousMultiTouchPanPosition;
             this._eventsMultiTouch.pushed.multiTouchPanPosition =
                 multiTouchPanPosition;
-
-            this._previousPinchSquaredDistanceCoalesced = pinchSquaredDistance || 0;
-            this._previousMultiTouchPanPositionCoalesced = multiTouchPanPosition;
 
             // Push _eventsMultiTouch queue to _allEvents queue so we know what
             // order to unwrap individual queues in.
@@ -668,8 +662,8 @@ export abstract class BaseCameraPointersInput implements ICameraInput<Camera> {
     private _onLostFocus: Nullable<(e: FocusEvent) => any>;
     private _pointA: Nullable<PointerTouch>;
     private _pointB: Nullable<PointerTouch>;
-    private _previousPinchSquaredDistanceCoalesced: number = 0;
-    private _previousMultiTouchPanPositionCoalesced: Nullable<PointerTouch> = null;
+    private _previousPinchSquaredDistance: number = 0;
+    private _previousMultiTouchPanPosition: Nullable<PointerTouch> = null;
 }
 
 /**

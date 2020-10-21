@@ -89,7 +89,7 @@ function simulateRender(cameraInput: BABYLON.ICameraInput<BABYLON.Camera>) {
 function StubCameraInput() {
     // Force our CameraPointersInput instance to type "any" so we can access
     // protected methods from within this function.
-    let cameraInput: any = (<any>new BABYLON.ArcRotateCameraPointersInput());
+    let cameraInput: any = <any>new BABYLON.ArcRotateCameraPointersInput();
 
     /**
      * Reset all counters.
@@ -112,6 +112,8 @@ function StubCameraInput() {
         cameraInput._buttonsPressed = 0;
         cameraInput._pointA = null;
         cameraInput._pointB = null;
+        cameraInput._previousPinchSquaredDistance = 0;
+        cameraInput._previousMultiTouchPanPosition = null;
         cameraInput._allEvents.clear();
         cameraInput._eventsButtonDown.clear();
         cameraInput._eventsButtonUp.clear();
@@ -635,7 +637,215 @@ describe("BaseCameraPointersInput", function () {
         it('compares "onMultiTouch()" deffered camera to immediate camera.', function() {
             // Only do this test if this.cameraInput._defferCallback === true.
             if (this.cameraInput._defferCallback) {
-                // TODO.
+
+                // Set up a 2nd Camera with the ArcRotateCameraPointersInput.
+                // This camera input dispatches event callbacks immediately.
+                const camera2 = new BABYLON.ArcRotateCamera("StubCamera2", 0, 0, 0, new BABYLON.Vector3(0, 0, 0), this._scene);
+                const cameraInput2 = StubCameraInput();
+                cameraInput2.camera = camera2;
+                cameraInput2.attachControl();
+                cameraInput2._defferCallback = false;
+
+                let pinchSquaredDistanceTotal = 0;
+                let multiTouchPanPositionMostRecent = undefined;
+                function totalNonDeferredCamera() {
+                    if(cameraInput2.lastOnMultiTouch !== undefined) {
+                        pinchSquaredDistanceTotal +=
+                            cameraInput2.lastOnMultiTouch.pinchSquaredDistance;
+                        multiTouchPanPositionMostRecent =
+                            cameraInput2.lastOnMultiTouch.multiTouchPanPosition;
+                    }
+                    cameraInput2.lastOnMultiTouch = undefined;
+                }
+
+                var event: MockPointerEvent = eventTemplate(<HTMLElement>this._canvas);
+
+                // Button down.
+                event.type = "pointerdown";
+                event.pointerType = "touch";
+                event.clientX = 100;
+                event.clientY = 200;
+                event.button = 0;
+                event.pointerId = 1;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // 2nd button down.
+                event.type = "pointerdown";
+                event.pointerType = "touch";
+                event.clientX = 300;
+                event.clientY = 400;
+                event.button = 1;
+                event.pointerId = 2;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // Start moving. 1st button.
+                event.type = "pointermove";
+                event.clientX = 101;
+                event.clientY = 200;
+                event.button = -1;
+                event.pointerId = 1;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // 1st button.
+                event.type = "pointermove";
+                event.clientX = 102;
+                event.clientY = 200;
+                event.button = -1;
+                event.pointerId = 1;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // 2nd button.
+                event.type = "pointermove";
+                event.clientX = 300;
+                event.clientY = 401;
+                event.button = -1;
+                event.pointerId = 2;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // 2nd button.
+                event.type = "pointermove";
+                event.clientX = 300;
+                event.clientY = 402;
+                event.button = -1;
+                event.pointerId = 2;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // No render call so no callbacks have been called for deferred
+                // camera.
+                expect(this.cameraInput.countOnTouch).to.equal(0);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(0);
+                expect(this.cameraInput.countOnButtonUp).to.equal(0);
+                // All callbacks called for non-deferred camera.
+                expect(cameraInput2.countOnTouch).to.equal(0);
+                expect(cameraInput2.countOnMultiTouch).to.equal(4);
+                expect(cameraInput2.countOnButtonDown).to.equal(2);
+                expect(cameraInput2.countOnButtonUp).to.equal(0);
+
+                // Call checkInputs().
+                simulateRender(this.cameraInput);
+                // Now callbacks have been called on deferred camera.
+                expect(this.cameraInput.countOnTouch).to.equal(0);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(1);
+                expect(this.cameraInput.countOnButtonDown).to.equal(2);
+                expect(this.cameraInput.countOnButtonUp).to.equal(0);
+
+                // Both cameras should have moved the same amount.
+                expect(this.cameraInput.lastOnMultiTouch.pinchSquaredDistance)
+                    .to.equal(pinchSquaredDistanceTotal);
+                // and to the same place.
+                expect(this.cameraInput.lastOnMultiTouch.multiTouchPanPosition.x)
+                    .to.equal(multiTouchPanPositionMostRecent.x);
+                expect(this.cameraInput.lastOnMultiTouch.multiTouchPanPosition.y)
+                    .to.equal(multiTouchPanPositionMostRecent.y);
+                expect(this.cameraInput.lastOnMultiTouch.multiTouchPanPosition.pointerId)
+                    .to.equal(multiTouchPanPositionMostRecent.pointerId);
+
+                expect(this.cameraInput.lastOnMultiTouch.previousPinchSquaredDistance)
+                    .to.equal(0);
+
+                // Save values to compare after next event.
+                const previousPinchSquaredDistance =
+                    this.cameraInput.lastOnMultiTouch.pinchSquaredDistance;
+                const previousMultiTouchPanPosition =
+                    this.cameraInput.lastOnMultiTouch.multiTouchPanPosition;
+
+                // Clear counters.
+                pinchSquaredDistanceTotal = 0;
+
+                this.cameraInput.countOnTouch = 0;
+                this.cameraInput.countOnMultiTouch = 0;
+                this.cameraInput.countOnButtonDown = 0;
+                this.cameraInput.countOnButtonUp = 0;
+
+                cameraInput2.countOnTouch = 0;
+                cameraInput2.countOnMultiTouch = 0;
+                cameraInput2.countOnButtonDown = 0;
+                cameraInput2.countOnButtonUp = 0;
+
+                // Now continue multiTouch drag.
+                // Start moving. 1st button.
+                event.type = "pointermove";
+                event.clientX = 103;
+                event.clientY = 200;
+                event.button = -1;
+                event.pointerId = 1;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // Button up.
+                event.type = "pointerup";
+                event.pointerType = "touch";
+                event.clientX = 100;
+                event.clientY = 200;
+                event.button = 0;
+                event.pointerId = 1;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // 2nd button up.
+                event.type = "pointerup";
+                event.pointerType = "touch";
+                event.clientX = 300;
+                event.clientY = 400;
+                event.button = 1;
+                event.pointerId = 2;
+                simulateEvent(this.cameraInput, event);
+                simulateEvent(cameraInput2, event);
+                totalNonDeferredCamera();
+
+                // No render call so no additional callbacks have been called
+                // for deferred camera.
+                expect(this.cameraInput.countOnTouch).to.equal(0);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(0);
+                expect(this.cameraInput.countOnButtonDown).to.equal(0);
+                expect(this.cameraInput.countOnButtonUp).to.equal(0);
+                // All callbacks called for non-deferred camera.
+                expect(cameraInput2.countOnTouch).to.equal(0);
+                expect(cameraInput2.countOnMultiTouch).to.equal(2);
+                expect(cameraInput2.countOnButtonDown).to.equal(0);
+                expect(cameraInput2.countOnButtonUp).to.equal(2);
+
+                // Call checkInputs().
+                simulateRender(this.cameraInput);
+                // Now callbacks have been called on deferred camera.
+                expect(this.cameraInput.countOnTouch).to.equal(0);
+                expect(this.cameraInput.countOnMultiTouch).to.equal(1);
+                expect(this.cameraInput.countOnButtonDown).to.equal(0);
+                expect(this.cameraInput.countOnButtonUp).to.equal(2);
+
+                // Both cameras should have moved the same amount.
+                expect(this.cameraInput.lastOnMultiTouch.pinchSquaredDistance)
+                    .to.equal(pinchSquaredDistanceTotal);
+
+                // multiTouchPanPosition is null when the drag ends.
+                expect(this.cameraInput.lastOnMultiTouch.multiTouchPanPosition)
+                    .to.equal(null);
+
+                // Previous distance matches.
+                expect(this.cameraInput.lastOnMultiTouch.previousPinchSquaredDistance)
+                    .to.equal(previousPinchSquaredDistance);
+                // and previous position matches.
+                expect(this.cameraInput.lastOnMultiTouch.previousMultiTouchPanPosition.x)
+                    .to.equal(previousMultiTouchPanPosition.x);
+                expect(this.cameraInput.lastOnMultiTouch.previousMultiTouchPanPosition.y)
+                    .to.equal(previousMultiTouchPanPosition.y);
+                expect(this.cameraInput.lastOnMultiTouch.previousMultiTouchPanPosition.pointerId)
+                    .to.equal(previousMultiTouchPanPosition.pointerId);
             }
         });
     });
