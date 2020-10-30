@@ -3,6 +3,7 @@ import { CameraInputsManager } from "./cameraInputsManager";
 import { FreeCameraKeyboardMoveInput } from "../Cameras/Inputs/freeCameraKeyboardMoveInput";
 import { FreeCameraMouseInput } from "../Cameras/Inputs/freeCameraMouseInput";
 import { FreeCameraMouseWheelInput } from "../Cameras/Inputs/freeCameraMouseWheelInput";
+import { FreeCameraPointersInput } from "../Cameras/Inputs/freeCameraPointersInput";
 import { FreeCameraTouchInput } from "../Cameras/Inputs/freeCameraTouchInput";
 import { Nullable } from '../types';
 
@@ -20,6 +21,10 @@ export class FreeCameraInputsManager extends CameraInputsManager<FreeCamera> {
      * @hidden
      */
     public _mouseWheelInput: Nullable<FreeCameraMouseWheelInput> = null;
+    /**
+     * @hidden
+     */
+    public _pointersInput: Nullable<FreeCameraPointersInput> = null;
     /**
      * Instantiates a new FreeCameraInputsManager.
      * @param camera Defines the camera the inputs belong to
@@ -80,6 +85,29 @@ export class FreeCameraInputsManager extends CameraInputsManager<FreeCamera> {
     removeMouseWheel(): FreeCameraInputsManager {
         if (this._mouseWheelInput) {
             this.remove(this._mouseWheelInput);
+        }
+        return this;
+    }
+
+    /**
+     * Add pointers input support to the input manager.
+     * @returns the current input manager
+     */
+    addPointers(): FreeCameraInputsManager {
+        if (!this._pointersInput) {
+            this._pointersInput = new FreeCameraPointersInput();
+            this.add(this._pointersInput);
+        }
+        return this;
+    }
+
+    /**
+     * Removes the pointers input support from the manager
+     * @returns the current input manager
+     */
+    removePointers(): FreeCameraInputsManager {
+        if (this._pointersInput) {
+            this.remove(this._pointersInput);
         }
         return this;
     }
